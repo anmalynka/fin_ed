@@ -9,41 +9,53 @@ class ForecastEngine:
 
     def run_forecast(self):
         stock = yf.Ticker(self.ticker)
-        df = stock.history(period="1y")
-        if len(df) < 50: return None
+        # Use 2 years to get enough context for a stable trend
+        df = stock.history(period="2y")
+        if len(df) < 100: return None
         
         prices = df['Close'].values
         dates = df.index
         
-        # 1. Recent Momentum (Last 60 days)
-        recent_df = df.tail(60)
-        recent_x = np.arange(len(recent_df))
-        recent_y = recent_df['Close'].values
-        slope, intercept = np.polyfit(recent_x, recent_y, 1)
+        # 1. Historical Stats
+        log_returns = np.log(prices[1:] / prices[:-1])
+        mu = log_returns.mean()
+        sigma = log_returns.std()
+        last_price = prices[-1]
         
-        # 2. Volatility factor
-        volatility = recent_df['Close'].std()
+        # 2. Project 252 trading days (1 Year)
+        days = 252
+        dt = 1
+        mean_price = prices.mean()
+        reversion_speed = 0.015 # Slower reversion for a longer trend
         
-        # 3. Project 1 Year
-        future_x = np.arange(len(recent_y), len(recent_y) + 252)
-        # Primary Hybrid Trend (Momentum + Sinusoidal Seasonality)
-        # Seasonality is based on a 252-day business cycle
-        seasonality = np.sin(2 * np.pi * future_x / 252) * (volatility * 2)
-        trend = slope * future_x + intercept
-        
-        hybrid_forecast = trend + seasonality + np.random.normal(0, volatility * 0.5, 252)
-        
-        # Baseline (Simple Trend)
-        baseline = trend
-        
-        # 4. Dates
+        forecast_path = []
+        current_p = last_price
+        for i in range(days):
+            epsilon = np.random.normal()
+            drift = (mu - 0.5 * sigma**2) * dt
+            diffusion = sigma * epsilon * np.sqrt(dt)
+            reversion = reversion_speed * (np.log(mean_price) - np.log(current_p))
+            
+            current_p = current_p * np.exp(drift + diffusion + reversion)
+            forecast_path.append(current_p)
+            
+        # 3. Timeline Generation (Ensuring no skips)
         last_date = dates[-1]
-        forecast_dates = [(last_date + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(1, 253)]
+        # We start from the day AFTER the last historical date
+        forecast_dates = [(last_date + timedelta(days=i+1)) for i in range(days)]
         
-        # Results
+        # Linear Baseline (Perfect Drift)
+        baseline = [last_price * np.exp(mu * (i+1)) for i in range(days)]
+
+        # 4. Formulate Result
+        # History (Last 100 days)
         history_points = [{"date": d.strftime('%Y-%m-%d'), "price": round(float(p), 2)} for d, p in zip(dates[-100:], prices[-100:])]
-        forecast_points = [{"date": d, "price": round(float(p), 2)} for d, p in zip(forecast_dates, hybrid_forecast)]
-        baseline_points = [{"date": d, "price": round(float(p), 2)} for d, p in zip(forecast_dates, baseline)]
+        
+        # Forecast (Next 252 days)
+        forecast_points = [{"date": d.strftime('%Y-%m-%d'), "price": round(float(p), 2)} for d, p in zip(forecast_dates, forecast_path)]
+        
+        # Baseline
+        baseline_points = [{"date": d.strftime('%Y-%m-%d'), "price": round(float(p), 2)} for d, p in zip(forecast_dates, baseline)]
 
         return {
             "history": history_points,
