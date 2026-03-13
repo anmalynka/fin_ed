@@ -5,13 +5,13 @@ import pandas as pd
 import numpy as np
 import logging
 import asyncio
+from datetime import datetime, timedelta
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# THE MOST ROBUST CORS CONFIGURATION POSSIBLE
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,124 +20,139 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def safe_float(value):
+def json_compatible(item):
+    if isinstance(item, dict): return {k: json_compatible(v) for k, v in item.items()}
+    elif isinstance(item, (list, tuple, set)): return [json_compatible(i) for i in item]
+    elif isinstance(item, (np.int64, np.int32, np.int16)): return int(item)
+    elif isinstance(item, (np.float64, np.float32, np.float16)):
+        if np.isnan(item) or np.isinf(item): return None
+        return float(item)
+    elif isinstance(item, (np.bool_)): return bool(item)
+    elif pd.isna(item): return None
+    return item
+
+def safe_float(value, decimals=2):
     try:
         if value is None or pd.isna(value) or np.isinf(value): return None
-        return float(value)
+        return round(float(value), decimals)
     except: return None
 
-def calculate_zones(df):
-    """Refined zone calculation for all timeframes."""
-    if df is None or df.empty or len(df) < 5: return None
+async def fetch_peer_full_history(ticker):
     try:
-        # Use a sliding window to find more 'local' support/resistance
-        lows = df['Low'].nsmallest(max(1, int(len(df)*0.1))).mean()
-        highs = df['High'].nlargest(max(1, int(len(df)*0.1))).mean()
+        loop = asyncio.get_event_loop()
+        s = yf.Ticker(ticker)
+        info = await loop.run_in_executor(None, lambda: s.info)
+        hist = await loop.run_in_executor(None, lambda: s.history(period="2y"))
         
-        # Buffer relative to volatility
-        price_range = highs - lows
-        buffer = price_range * 0.05 if price_range > 0 else df['Close'].mean() * 0.01
+        current_p = safe_float(info.get('currentPrice'))
+        p_1y_ago = safe_float(hist.iloc[-252]['Close']) if len(hist) > 252 else current_p
         
+        # Financials for 1Y ago EPS
+        fin = await loop.run_in_executor(None, lambda: s.financials)
+        eps_now = safe_float(info.get('trailingEps'))
+        
+        # Robust historical EPS extraction
+        eps_1y = eps_now
+        if not fin.empty:
+            possible_rows = ['Basic EPS', 'Diluted EPS', 'Net Income']
+            for row in possible_rows:
+                if row in fin.index and fin.shape[1] > 1:
+                    eps_1y = safe_float(fin.loc[row].iloc[1])
+                    if eps_1y is not None: break
+
         return {
-            "support": {"low": lows - buffer, "high": lows + buffer, "mid": lows},
-            "resistance": {"low": highs - buffer, "high": highs + buffer, "mid": highs}
+            "ticker": ticker,
+            "pe_now": safe_float(info.get('trailingPE')),
+            "pe_1y": safe_float(p_1y_ago / eps_1y) if eps_1y and eps_1y > 0 else safe_float(info.get('trailingPE')),
+            "eps_now": eps_now,
+            "eps_1y": eps_1y,
+            "div_price_now": safe_float((info.get('dividendRate', 0) / current_p) * 100) if current_p else 0,
+            "div_price_1y": safe_float((info.get('dividendRate', 0) / p_1y_ago) * 100) if p_1y_ago else 0
         }
-    except Exception as e:
-        logger.error(f"Zone Error: {e}")
-        return None
+    except: return None
 
 @app.get("/analyze/{ticker}")
 async def analyze_stock(ticker: str):
     ticker = ticker.upper().strip()
-    logger.info(f"Analyzing {ticker}")
     try:
         stock = yf.Ticker(ticker)
-        # Using fast_info + info for maximum data recovery
         info = stock.info or {}
         fast = stock.fast_info
+        industry = info.get('industry', 'N/A')
+        
+        # 1. Fair Value Logic (User Formula: EPS * Growth)
+        eps = safe_float(info.get('trailingEps'))
+        growth = info.get('earningsGrowth') or 0.15
+        intrinsic = abs(eps * (growth * 100)) if eps else 0 # Ensure positive
         
         current_p = safe_float(fast.last_price) or safe_float(info.get('currentPrice'))
-        if not current_p:
-            h = stock.history(period="1d")
-            if not h.empty: current_p = safe_float(h.iloc[-1]['Close'])
         
-        if not current_p:
-            raise HTTPException(status_code=404, detail=f"Ticker {ticker} not found.")
+        status = "NEUTRAL"
+        if intrinsic and current_p:
+            # If value lower than price - Buy
+            if intrinsic < current_p * 0.95: status = "UNDERVALUED"
+            # If value higher than price - Point of too high
+            elif intrinsic > current_p * 1.05: status = "OVERVALUED"
+            else: status = "NEUTRAL"
 
-        mkt_cap = safe_float(fast.market_cap) or safe_float(info.get('marketCap'))
+        # 2. Peers
+        peer_tickers = ["AAPL", "MSFT", "GOOGL"]
+        if "Semicon" in industry: peer_tickers = ["AMD", "INTC", "TSM"]
+        elif "Auto" in industry: peer_tickers = ["F", "GM", "TM"]
         
-        # Peer Selection (Parallel)
-        peers_list = ["AAPL", "MSFT", "GOOGL"] if "Semicon" not in (info.get('industry', '')) else ["AMD", "INTC", "TSM"]
-        comparison = []
-        for p in peers_list:
-            try:
-                p_s = yf.Ticker(p)
-                p_info = p_s.info
-                comparison.append({
-                    "ticker": p,
-                    "pe": safe_float(p_info.get('trailingPE')),
-                    "eps": safe_float(p_info.get('trailingEps'))
-                })
-            except: continue
+        tasks = [fetch_peer_full_history(p) for p in peer_tickers if p != ticker]
+        peers_data = await asyncio.gather(*tasks)
 
-        # DCF (Simplified but Stable)
-        intrinsic = None
-        eps = safe_float(info.get('trailingEps'))
-        if eps and eps > 0:
-            intrinsic = eps * 20 # 20x Earnings proxy for stable DCF speed
+        perf = {}
+        for p in ["1mo", "ytd", "1y"]:
+            h = stock.history(period=p)
+            if not h.empty:
+                s, e = h.iloc[0]['Close'], h.iloc[-1]['Close']
+                perf[p.upper()] = round(((e - s)/s)*100, 2)
 
-        return {
+        return json_compatible({
             "ticker": ticker,
-            "type": info.get('quoteType', 'EQUITY'),
-            "info": {"name": info.get('longName', ticker), "industry": info.get('industry', 'N/A'), "summary": info.get('longBusinessSummary', '')},
             "metrics": {
-                "current": {"price": current_p, "pe": safe_float(info.get('trailingPE')), "eps": eps, "mkt_cap": mkt_cap},
-                "intrinsic_price": intrinsic,
-                "is_undervalued": intrinsic > current_p if intrinsic and current_p else False
+                "price": current_p, "intrinsic": intrinsic, "status": status,
+                "eps": eps, "pe": safe_float(info.get('trailingPE')),
+                "mkt_cap": safe_float(info.get('marketCap')),
+                "div_annual": safe_float(info.get('dividendRate')),
+                "beta": safe_float(info.get('beta')),
+                "exchange": info.get('exchange')
             },
-            "comparison": comparison,
-            "news": stock.news[:3] if stock.news else [],
-            "filings": {
-                "sec": f"https://www.sec.gov/edgar/search/#/q={ticker}&forms=10-K,10-Q",
-                "annual": f"https://finance.yahoo.com/quote/{ticker}/financials"
-            }
-        }
+            "peers": [p for p in peers_data if p],
+            "performance": perf,
+            "info": {"name": info.get('longName', ticker), "summary": info.get('longBusinessSummary', '')},
+            "news": stock.news[:3] if stock.news else []
+        })
     except Exception as e:
-        logger.error(f"Analyze Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error: {e}")
+        raise HTTPException(status_code=500, detail="Fetch error.")
 
 @app.get("/history/{ticker}")
-async def get_history(ticker: str, period: str = Query("1mo")):
-    ticker = ticker.upper().strip()
+async def get_history(ticker: str, period: str = Query("1wk")):
     try:
-        stock = yf.Ticker(ticker)
+        stock = yf.Ticker(ticker.upper())
         interval = "1d"
-        if period == "1d": interval = "2m"
-        elif period == "5d" or period == "1wk": interval = "15m"
+        # 24h/Hourly for 1D trend
+        if period == "1d": interval = "1h"
+        elif period in ["5d", "1wk"]: interval = "30m"
         
-        hist = stock.history(period=period, interval=interval)
-        if hist.empty:
-            return {"data": [], "zones": None, "performance": None}
+        hist = stock.history(period=period, interval=interval).reset_index()
+        if hist.empty: return {"data": []}
         
-        hist = hist.reset_index()
-        date_col = 'Date' if 'Date' in hist.columns else 'Datetime'
-        hist['date'] = hist[date_col].dt.strftime('%Y-%m-%d %H:%M')
+        col = 'Date' if 'Date' in hist.columns else 'Datetime'
+        hist['date'] = hist[col].dt.strftime('%m-%d %H:%M')
         
-        zones = calculate_zones(hist)
-        start_p = float(hist.iloc[0]['Close'])
-        end_p = float(hist.iloc[-1]['Close'])
+        lows, highs = hist['Low'].min(), hist['High'].max()
+        start_p, end_p = hist.iloc[0]['Close'], hist.iloc[-1]['Close']
         
-        return {
+        return json_compatible({
             "data": hist[['date', 'Close']].rename(columns={'Close': 'price'}).to_dict(orient='records'),
-            "zones": zones,
-            "performance": {
-                "change_pct": ((end_p - start_p)/start_p)*100,
-                "is_positive": end_p >= start_p
-            }
-        }
-    except Exception as e:
-        logger.error(f"History Error: {e}")
-        return {"data": [], "zones": None, "performance": None}
+            "zones": {"support": {"low": lows * 0.99, "high": lows * 1.01}, "resistance": {"low": highs * 0.99, "high": highs * 1.01}},
+            "performance": {"is_positive": end_p >= start_p, "pct": round(((end_p - start_p)/start_p)*100, 2)}
+        })
+    except: return {"data": []}
 
 if __name__ == "__main__":
     import uvicorn
