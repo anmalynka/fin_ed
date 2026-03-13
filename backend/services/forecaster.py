@@ -9,51 +9,53 @@ class ForecastEngine:
 
     def run_forecast(self):
         stock = yf.Ticker(self.ticker)
-        # Use 2 years to get enough context for a stable trend
+        # Use 2 years for stable drift calculation
         df = stock.history(period="2y")
         if len(df) < 100: return None
         
         prices = df['Close'].values
         dates = df.index
         
-        # 1. Historical Stats
+        # 1. Calculate Historical Log Returns
         log_returns = np.log(prices[1:] / prices[:-1])
         mu = log_returns.mean()
         sigma = log_returns.std()
         last_price = prices[-1]
         
-        # 2. Project 252 trading days (1 Year)
+        # 2. Stochastic Projection (Geometric Brownian Motion)
+        # This creates the realistic "jagged" paths you liked
         days = 252
         dt = 1
-        mean_price = prices.mean()
-        reversion_speed = 0.015 # Slower reversion for a longer trend
         
-        forecast_path = []
-        current_p = last_price
+        # Add Mean Reversion to keep the long-term trend grounded
+        mean_price = prices.mean()
+        reversion_speed = 0.02
+        
+        forecast_path = [last_price]
         for i in range(days):
             epsilon = np.random.normal()
+            # Drift component (Historical growth)
             drift = (mu - 0.5 * sigma**2) * dt
+            # Volatility component (Ticker-specific noise)
             diffusion = sigma * epsilon * np.sqrt(dt)
-            reversion = reversion_speed * (np.log(mean_price) - np.log(current_p))
+            # Reversion component (Pull back to average)
+            reversion = reversion_speed * (np.log(mean_price) - np.log(forecast_path[-1]))
             
-            current_p = current_p * np.exp(drift + diffusion + reversion)
-            forecast_path.append(current_p)
+            next_price = forecast_path[-1] * np.exp(drift + diffusion + reversion)
+            forecast_path.append(next_price)
             
-        # 3. Timeline Generation (Ensuring no skips)
+        # 3. Create Continuous Timeline
         last_date = dates[-1]
-        # We start from the day AFTER the last historical date
         forecast_dates = [(last_date + timedelta(days=i+1)) for i in range(days)]
         
-        # Linear Baseline (Perfect Drift)
+        # 4. Linear Baseline for comparison
         baseline = [last_price * np.exp(mu * (i+1)) for i in range(days)]
 
-        # 4. Formulate Result
+        # Prepare for UI
         # History (Last 100 days)
         history_points = [{"date": d.strftime('%Y-%m-%d'), "price": round(float(p), 2)} for d, p in zip(dates[-100:], prices[-100:])]
-        
         # Forecast (Next 252 days)
-        forecast_points = [{"date": d.strftime('%Y-%m-%d'), "price": round(float(p), 2)} for d, p in zip(forecast_dates, forecast_path)]
-        
+        forecast_points = [{"date": d.strftime('%Y-%m-%d'), "price": round(float(p), 2)} for d, p in zip(forecast_dates, forecast_path[1:])]
         # Baseline
         baseline_points = [{"date": d.strftime('%Y-%m-%d'), "price": round(float(p), 2)} for d, p in zip(forecast_dates, baseline)]
 
