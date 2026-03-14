@@ -9,17 +9,16 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
-        value: 3.10.0
+        value: "3.10.0"
     rootDirectory: backend
 
   # Frontend (Static Site / Vite React)
-  - type: static
+  - type: web
     name: finadvisor-ui
-    env: static
-    plan: free
+    runtime: static
     region: oregon
     buildCommand: npm install && npm run build
-    publishPath: ./dist
+    staticPublishPath: ./dist
     rootDirectory: frontend
     routes:
       - type: rewrite
@@ -27,4 +26,4 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        value: https://finadvisor-api.onrender.com # Update this after first deployment
+        value: https://finadvisor-api.onrender.com
