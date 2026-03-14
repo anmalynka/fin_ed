@@ -16,7 +16,6 @@ services:
   - type: web
     name: finadvisor-ui
     runtime: static
-    region: oregon
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
     rootDir: frontend
