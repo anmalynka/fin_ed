@@ -10,7 +10,7 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.10.0"
-    rootDirectory: backend
+    rootDir: backend
 
   # Frontend (Static Site / Vite React)
   - type: web
@@ -19,14 +19,11 @@ services:
     region: oregon
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
-    rootDirectory: frontend
+    rootDir: frontend
     routes:
       - type: rewrite
         source: /*
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        fromService:
-          type: web
-          name: finadvisor-api
-          property: host
+        value: https://finadvisor-api.onrender.com
