@@ -2,7 +2,7 @@ services:
   # Backend API (Python/FastAPI)
   - type: web
     name: finadvisor-api
-    env: python
+    runtime: python
     plan: free
     region: oregon
     buildCommand: pip install -r requirements.txt
@@ -26,4 +26,7 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        value: https://finadvisor-api.onrender.com
+        fromService:
+          type: web
+          name: finadvisor-api
+          property: host
