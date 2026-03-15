@@ -13,11 +13,10 @@ services:
     rootDir: backend
 
   # Frontend (Static Site / Vite React)
-  - type: web
+  - type: static
     name: finadvisor-ui
-    env: static
     buildCommand: npm install && npm run build
-    staticPublishPath: ./dist
+    publishPath: ./dist
     rootDir: frontend
     routes:
       - type: rewrite

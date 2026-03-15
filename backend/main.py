@@ -21,6 +21,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+async def health_check():
+    return {"status": "ok", "message": "FinAdvisor API is running"}
+
 def json_compatible(item):
     if isinstance(item, dict): return {k: json_compatible(v) for k, v in item.items()}
     elif isinstance(item, (list, tuple, set)): return [json_compatible(i) for i in item]
