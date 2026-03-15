@@ -1,7 +1,7 @@
 services:
-  # 1. Backend (Using the root main.py proxy)
+  # 1. Backend API (FastAPI)
   - type: web
-    name: fin-advisor-backend-v9
+    name: fin-advisor-api-v3
     env: python
     plan: free
     region: oregon
@@ -13,9 +13,9 @@ services:
       - key: PYTHONPATH
         value: .
 
-  # 2. Frontend (Static Site - This WILL ignore main.py)
+  # 2. Frontend UI (Static Site)
   - type: static
-    name: fin-advisor-frontend-v9
+    name: fin-advisor-ui
     buildCommand: cd frontend && npm install && npm run build
     publishPath: frontend/dist
     routes:
@@ -26,5 +26,5 @@ services:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: fin-advisor-backend-v9
+          name: fin-advisor-api-v3
           property: host
