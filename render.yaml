@@ -1,7 +1,7 @@
 services:
-  # 1. Backend API
+  # 1. Backend (Matches your successful v3 service)
   - type: web
-    name: fin-advisor-api
+    name: fin-advisor-api-v3
     runtime: python
     plan: free
     region: oregon
@@ -13,12 +13,11 @@ services:
       - key: PYTHONPATH
         value: .
 
-  # 2. Frontend UI
-  - type: web
+  # 2. Frontend (Static Site to fix UI 404)
+  - type: static
     name: fin-advisor-ui
-    runtime: static
     buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: frontend/dist
+    publishPath: frontend/dist
     routes:
       - type: rewrite
         source: /*
@@ -27,5 +26,5 @@ services:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: fin-advisor-api
+          name: fin-advisor-api-v3
           property: host
