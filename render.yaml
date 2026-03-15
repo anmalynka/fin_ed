@@ -1,21 +1,21 @@
 services:
-  # 1. Backend (Matches your successful v3 service)
+  # 1. Backend (Using the root main.py proxy)
   - type: web
-    name: fin-advisor-api-v3
-    runtime: python
+    name: fin-advisor-backend-v9
+    env: python
     plan: free
     region: oregon
     buildCommand: pip install -r backend/requirements.txt
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: "3.10.0"
       - key: PYTHONPATH
         value: .
 
-  # 2. Frontend (Static Site to fix UI 404)
+  # 2. Frontend (Static Site - This WILL ignore main.py)
   - type: static
-    name: fin-advisor-ui
+    name: fin-advisor-frontend-v9
     buildCommand: cd frontend && npm install && npm run build
     publishPath: frontend/dist
     routes:
@@ -26,5 +26,5 @@ services:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: fin-advisor-api-v3
+          name: fin-advisor-backend-v9
           property: host
