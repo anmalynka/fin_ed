@@ -13,6 +13,12 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+# Add logging to see which routes are registered
+@app.on_event("startup")
+async def startup_event():
+    for route in app.routes:
+        logger.info(f"Registered route: {route.path}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,7 +29,13 @@ app.add_middleware(
 
 @app.get("/")
 async def health_check():
+    logger.info("Health check hit")
     return {"status": "ok", "message": "FinAdvisor API is running"}
+
+@app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def catch_all(path_name: str):
+    logger.info(f"Catch-all hit: {path_name}")
+    return {"error": "Not Found", "path": path_name, "message": "This is a catch-all route. The requested path was not found."}
 
 def json_compatible(item):
     if isinstance(item, dict): return {k: json_compatible(v) for k, v in item.items()}

@@ -2,7 +2,7 @@ services:
   # Backend API (Python/FastAPI)
   - type: web
     name: finadvisor-api
-    env: python
+    runtime: python
     plan: free
     region: oregon
     buildCommand: pip install -r requirements.txt
