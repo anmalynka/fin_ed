@@ -32,11 +32,6 @@ async def health_check():
     logger.info("Health check hit")
     return {"status": "ok", "message": "FinAdvisor API is running"}
 
-@app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE"])
-async def catch_all(path_name: str):
-    logger.info(f"Catch-all hit: {path_name}")
-    return {"error": "Not Found", "path": path_name, "message": "This is a catch-all route. The requested path was not found."}
-
 def json_compatible(item):
     if isinstance(item, dict): return {k: json_compatible(v) for k, v in item.items()}
     elif isinstance(item, (list, tuple, set)): return [json_compatible(i) for i in item]
@@ -57,6 +52,7 @@ def safe_float(value, decimals=2):
 @app.get("/analyze/{ticker}")
 async def analyze_stock(ticker: str):
     ticker = ticker.upper().strip()
+    logger.info(f"Analyze hit for ticker: {ticker}")
     try:
         stock = yf.Ticker(ticker)
         info = stock.info or {}
@@ -136,6 +132,7 @@ async def analyze_stock(ticker: str):
 
 @app.get("/history/{ticker}")
 async def get_history(ticker: str, period: str = Query("1wk")):
+    logger.info(f"History hit for ticker: {ticker}, period: {period}")
     try:
         stock = yf.Ticker(ticker.upper())
         interval = "1d"
@@ -156,10 +153,16 @@ async def get_history(ticker: str, period: str = Query("1wk")):
 
 @app.get("/forecast/{ticker}")
 async def get_forecast(ticker: str):
+    logger.info(f"Forecast hit for ticker: {ticker}")
     try:
         engine = ForecastEngine(ticker.upper())
         return json_compatible(engine.run_forecast())
     except: return {}
+
+@app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def catch_all(path_name: str):
+    logger.info(f"Catch-all hit: {path_name}")
+    return {"error": "Not Found", "path": path_name, "message": "Requested path not found."}
 
 if __name__ == "__main__":
     import uvicorn
