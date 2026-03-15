@@ -1,23 +1,24 @@
 services:
-  # 1. Backend (FastAPI)
+  # 1. Backend API
   - type: web
-    name: fin-advisor-backend-v9
-    env: python
+    name: fin-advisor-api
+    runtime: python
     plan: free
     region: oregon
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: "3.10.0"
+      - key: PYTHONPATH
+        value: .
 
-  # 2. Frontend (Static Site)
-  - type: static
-    name: fin-advisor-frontend-v9
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    publishPath: dist
+  # 2. Frontend UI
+  - type: web
+    name: fin-advisor-ui
+    runtime: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
     routes:
       - type: rewrite
         source: /*
@@ -26,5 +27,5 @@ services:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: fin-advisor-backend-v9
+          name: fin-advisor-api
           property: host
