@@ -21,7 +21,7 @@ function App() {
     { label: '3M', value: '3mo' }, { label: 'YTD', value: 'ytd' }, { label: '1Y', value: '1y' }, { label: '5Y', value: '5y' }
   ];
 
-  const rawApiBase = (import.meta.env.VITE_API_URL || 'https://fin-advisor-api-v3.onrender.com' || 'http://localhost:8000').replace(/\/$/, '');
+  const rawApiBase = (import.meta.env.VITE_API_URL || 'https://fin-ed.onrender.com' || 'http://localhost:8000').replace(/\/$/, '');
   const API_BASE = (rawApiBase.startsWith('http') ? rawApiBase : `https://${rawApiBase}`) + '/api';
 
   useEffect(() => {
