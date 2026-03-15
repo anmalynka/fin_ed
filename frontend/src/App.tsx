@@ -21,7 +21,9 @@ function App() {
     { label: '3M', value: '3mo' }, { label: 'YTD', value: 'ytd' }, { label: '1Y', value: '1y' }, { label: '5Y', value: '5y' }
   ];
 
-  const API_BASE = '/api';
+  const API_BASE = window.location.hostname === 'localhost' 
+    ? 'http://localhost:8000/api' 
+    : '/api';
 
   useEffect(() => {
     console.log("Constructed API Base:", API_BASE);
