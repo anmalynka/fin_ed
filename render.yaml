@@ -1,7 +1,7 @@
 services:
-  # 1. Backend API (Web Service)
+  # 1. Backend Service (FastAPI)
   - type: web
-    name: fin-advisor-api
+    name: fin-advisor-backend-v9
     env: python
     plan: free
     region: oregon
@@ -13,9 +13,10 @@ services:
       - key: PYTHONPATH
         value: .
 
-  # 2. Frontend (Static Site)
+  # 2. Frontend Service (Static Site)
+  # Changing to 'type: static' ensures Render serves your UI assets, not the API code.
   - type: static
-    name: fin-advisor-ui
+    name: fin-advisor-frontend-v9
     buildCommand: cd frontend && npm install && npm run build
     publishPath: frontend/dist
     routes:
@@ -26,5 +27,5 @@ services:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: fin-advisor-api
+          name: fin-advisor-backend-v9
           property: host
