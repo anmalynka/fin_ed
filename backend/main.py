@@ -1,3 +1,12 @@
+import os
+import sys
+
+# CRITICAL: This must be the very first thing in the file
+# It adds the 'backend' directory to the search path so 'import services' works
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -6,14 +15,9 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import logging
-import sys
 from services.forecaster import ForecastEngine
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
@@ -166,8 +170,7 @@ async def get_forecast(ticker: str):
         return {}
 
 # Serve Frontend Static Files
-import os
-frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
+frontend_dist = os.path.abspath(os.path.join(current_dir, "..", "frontend", "dist"))
 
 if os.path.exists(frontend_dist):
     app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
@@ -176,16 +179,12 @@ if os.path.exists(frontend_dist):
     async def serve_frontend(full_path: str):
         # Prevent intercepting API calls
         if full_path.startswith("api/") or full_path.startswith("health") or full_path == "":
-            # Fall through to FastAPI routes if it's an API or empty root
-            # (FastAPI matches routes in order, but catch-all needs logic)
             pass
         
-        # Check if the requested file exists in dist
         file_path = os.path.join(frontend_dist, full_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
             
-        # Default to index.html for SPA
         return FileResponse(os.path.join(frontend_dist, "index.html"))
 
 @app.get("/")
@@ -197,6 +196,5 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    import os
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)

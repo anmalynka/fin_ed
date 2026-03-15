@@ -6,8 +6,9 @@ services:
     plan: free
     region: oregon
     buildCommand: cd frontend && npm install && npm run build && cd .. && pip install -r backend/requirements.txt
-    # We 'cd backend' first so that 'import services' works correctly
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: "3.10.0"
+      - key: PYTHONPATH
+        value: "/opt/render/project/src/backend"
