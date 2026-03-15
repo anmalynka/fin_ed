@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Search, TrendingUp, Activity, BookOpen, BarChart3, ExternalLink, ArrowUpRight, ArrowDownRight, History, Info, AlertCircle, Loader2, Globe, ShieldCheck, Cpu, ListOrdered } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, BarChart, Bar, Legend, Cell, LabelList, ComposedChart } from 'recharts';
+import { Search, Activity, BookOpen, History, Info, Loader2, ShieldCheck, Cpu, ListOrdered } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, BarChart, Bar, Legend, Cell, LabelList } from 'recharts';
 
 function App() {
   const [ticker, setTicker] = useState('');
@@ -13,7 +13,7 @@ function App() {
   const [forecastData, setForecastData] = useState<any[]>([]);
   const [period, setPeriod] = useState('5d');
   const [mode, setMode] = useState('perf');
-  const [error, setError] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const [compareMetric, setCompareMetric] = useState('pe');
 
   const timeframes = [
@@ -21,15 +21,17 @@ function App() {
     { label: '3M', value: '3mo' }, { label: 'YTD', value: 'ytd' }, { label: '1Y', value: '1y' }, { label: '5Y', value: '5y' }
   ];
 
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!ticker) return;
-    setLoading(true); setError(''); setForecastData([]); setHistory([]);
+    setLoading(true); setErrorMessage(''); setForecastData([]); setHistory([]);
     try {
       const [res, histRes, foreRes] = await Promise.all([
-        axios.get(`http://localhost:8000/analyze/${ticker}`),
-        axios.get(`http://localhost:8000/history/${ticker}?period=${period}`),
-        axios.get(`http://localhost:8000/forecast/${ticker}`)
+        axios.get(`${API_BASE}/analyze/${ticker}`),
+        axios.get(`${API_BASE}/history/${ticker}?period=${period}`),
+        axios.get(`${API_BASE}/forecast/${ticker}`)
       ]);
       setData(res.data);
       setHistory(histRes.data?.data || []);
@@ -50,14 +52,14 @@ function App() {
       ];
       setForecastData(combined);
     } catch (err: any) {
-      setError('Ticker not found.');
+      setErrorMessage('Ticker not found.');
       setData(null);
     } finally { setLoading(false); }
   };
 
   const updateChart = async (symbol: string, time: string) => {
     try {
-      const res = await axios.get(`http://localhost:8000/history/${symbol}?period=${time}`);
+      const res = await axios.get(`${API_BASE}/history/${symbol}?period=${time}`);
       if (res.data) {
         setHistory(res.data.data || []);
         setZones(res.data.zones);
@@ -89,12 +91,17 @@ function App() {
           <div><h1 className="text-lg font-black uppercase tracking-tight text-slate-900">FinAdvisor</h1><p className="text-[10px] font-bold text-slate-300 uppercase italic mt-1 leading-none">Institutional Intelligence</p></div>
         </div>
         <form onSubmit={handleSearch} className="relative group w-full md:w-96">
-          <input type="text" placeholder="Search Ticker..." className="w-full pl-12 pr-6 py-3 bg-white border border-slate-200 rounded-[20px] w-full focus:ring-4 focus:ring-rose-500/10 outline-none transition-all shadow-sm font-medium" value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())} />
+          <input type="text" placeholder="Search Ticker..." className="w-full pl-12 pr-6 py-3 bg-white border border-slate-200 rounded-[20px] focus:ring-4 focus:ring-rose-500/10 outline-none transition-all shadow-sm font-medium" value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())} />
           {loading ? <Loader2 className="absolute left-4 top-3.5 text-rose-700 animate-spin w-5 h-5" /> : <Search className="absolute left-4 top-3.5 text-slate-300 w-5 h-5" />}
         </form>
       </nav>
 
       <main className="max-w-7xl mx-auto">
+        {errorMessage && (
+          <div className="bg-rose-50 border border-rose-100 text-rose-700 p-4 rounded-2xl mb-6 font-bold text-sm text-center">
+            {errorMessage}
+          </div>
+        )}
         {data && (
           <div className="space-y-6 animate-in fade-in duration-700">
             {/* Header */}
