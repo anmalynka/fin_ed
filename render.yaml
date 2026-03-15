@@ -13,12 +13,12 @@ services:
     rootDir: backend
 
   # 2. Frontend (Static Site / Vite React)
-  # In Render Blueprints, Static Sites use type: web with runtime: static
+  # Correct Blueprint configuration for Static Sites:
   - type: web
     name: fin-advisor-ui
     runtime: static
     buildCommand: npm install && npm run build
-    publishPath: dist
+    staticPublishPath: dist
     rootDir: frontend
     routes:
       - type: rewrite
