@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -162,6 +164,36 @@ async def get_forecast(ticker: str):
     except Exception as e:
         logger.error(f"Error in forecast: {e}")
         return {}
+
+# Serve Frontend Static Files
+import os
+frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
+
+if os.path.exists(frontend_dist):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
+    
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        # Prevent intercepting API calls
+        if full_path.startswith("api/") or full_path.startswith("health") or full_path == "":
+            # Fall through to FastAPI routes if it's an API or empty root
+            # (FastAPI matches routes in order, but catch-all needs logic)
+            pass
+        
+        # Check if the requested file exists in dist
+        file_path = os.path.join(frontend_dist, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+            
+        # Default to index.html for SPA
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
+
+@app.get("/")
+async def root():
+    index_path = os.path.join(frontend_dist, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"message": "API is running, but frontend was not built."}
 
 if __name__ == "__main__":
     import uvicorn
