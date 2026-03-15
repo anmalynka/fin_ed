@@ -1,7 +1,7 @@
 services:
   # 1. Backend API (Python/FastAPI)
   - type: web
-    name: finadvisor-api-v7
+    name: finadvisor-backend-v8
     env: python
     plan: free
     region: oregon
@@ -11,10 +11,12 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.10.0"
+      - key: PYTHONPATH
+        value: .
 
   # 2. Frontend (Static Site / Vite React)
   - type: web
-    name: finadvisor-ui-v7
+    name: finadvisor-frontend-v8
     env: static
     rootDir: frontend
     buildCommand: npm install && npm run build
@@ -27,5 +29,5 @@ services:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: finadvisor-api-v7
+          name: finadvisor-backend-v8
           property: host
