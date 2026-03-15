@@ -1,8 +1,7 @@
 import os
 import sys
 
-# CRITICAL: This must be the very first thing in the file
-# It adds the 'backend' directory to the search path so 'import services' works
+# CRITICAL: Path fix for services import
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
@@ -15,12 +14,10 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import logging
-import requests
 from services.forecaster import ForecastEngine
-from services.financials import FinancialsService
 from services.valuation import ValuationService
-from services.technical_analysis import TechnicalAnalysisService
 
+# Configure Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -33,18 +30,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    logger.info(f"Incoming request: {request.method} {request.url.path}")
-    response = await call_next(request)
-    logger.info(f"Response status: {response.status_code}")
-    return response
-
-@app.get("/api/health")
-@app.get("/health")
-async def health_check():
-    return {"status": "ok", "message": "FinAdvisor API is running"}
 
 def json_compatible(item):
     if isinstance(item, dict): return {k: json_compatible(v) for k, v in item.items()}
@@ -67,128 +52,108 @@ def safe_float(value, decimals=2):
 @app.get("/analyze/{ticker}")
 async def analyze_stock(ticker: str):
     ticker = ticker.upper().strip()
-    logger.info(f"Analyzing ticker: {ticker}")
+    logger.info(f"--- START ANALYSIS FOR {ticker} ---")
+    
     try:
-        # Initialize services
+        # Create Ticker instance
+        # We don't pass session here to keep it simple, but yfinance often needs it on Render
         stock = yf.Ticker(ticker)
+        
+        # 1. Fetch Info (Primary Data Source)
+        try:
+            info = stock.info
+            if not info or len(info) < 5:
+                logger.warning(f"yfinance returned empty info for {ticker}. Likely blocked or invalid ticker.")
+                info = {}
+        except Exception as e:
+            logger.error(f"Error fetching info for {ticker}: {e}")
+            info = {}
+
+        # 2. Fetch Price (Multiple Fallbacks)
+        current_p = safe_float(info.get('currentPrice')) or safe_float(info.get('regularMarketPrice'))
+        
+        if current_p is None:
+            logger.info(f"Price not in info for {ticker}, trying fast_info...")
+            try:
+                current_p = safe_float(stock.fast_info.last_price)
+            except: pass
+            
+        if current_p is None:
+            logger.info(f"Price still missing, trying 1d history...")
+            try:
+                hist = stock.history(period="1d")
+                if not hist.empty:
+                    current_p = safe_float(hist['Close'].iloc[-1])
+            except: pass
+
+        # FINAL ERROR: If we can't get a price, we can't analyze.
+        if current_p is None:
+            logger.error(f"COULD NOT RESOLVE PRICE FOR {ticker}")
+            raise HTTPException(status_code=404, detail=f"Data for {ticker} is temporarily unavailable. Yahoo Finance may be blocking the request.")
+
+        # 3. Valuation & Logic
         val_service = ValuationService(ticker)
-        fin_service = FinancialsService(ticker)
-        tech_service = TechnicalAnalysisService(ticker)
+        dcf = val_service.run_dcf_model()
+        intrinsic = safe_float(dcf.get('intrinsic_price')) or current_p
         
-        info = stock.info or {}
-        fast = stock.fast_info
-        
-        # Fallback for missing info (common on Render/Scraping blocks)
-        current_p = safe_float(fast.last_price) or safe_float(info.get('currentPrice')) or safe_float(info.get('regularMarketPrice'))
-        
-        # If we still don't have a price, try history
-        if current_p is None:
-            h = stock.history(period="1d")
-            if not h.empty:
-                current_p = safe_float(h['Close'].iloc[-1])
-
-        if current_p is None:
-            raise HTTPException(status_code=404, detail=f"Ticker {ticker} not found or no price data available.")
-
-        quote_type = info.get('quoteType', 'EQUITY')
-        is_etf = quote_type == 'ETF'
-        
-        # 1. ETF Specific Data
-        holdings = []
-        if is_etf:
-            try:
-                raw_holdings = info.get('topHoldings', [])
-                for h in raw_holdings[:10]:
-                    holdings.append({
-                        "symbol": h.get('symbol'),
-                        "name": h.get('holdingName'),
-                        "pct": safe_float(h.get('holdingPercent', 0) * 100)
-                    })
-            except: pass
-
-        # 2. Metrics & Expense Ratio
-        exp = info.get('netExpenseRatio') or info.get('annualReportExpenseRatio') or info.get('expenseRatio')
-        if exp is None and is_etf:
-            try:
-                fd = stock.funds_data
-                if fd and not fd.fund_operations.empty:
-                    exp = fd.fund_operations.loc['Annual Report Expense Ratio'].iloc[0]
-                    if exp and exp < 0.01: exp *= 100
-            except: pass
-        if exp is None: exp = 0.0
-        
-        div_rate = info.get('dividendRate') or info.get('trailingAnnualDividendRate') or 0.0
-        div_yield = info.get('dividendYield') or info.get('trailingAnnualDividendYield') or info.get('yield') or 0.0
-        if 0 < div_yield < 0.1: div_yield *= 100
-        
-        if (not div_rate or div_rate == 0) and div_yield > 0 and current_p: 
-            div_rate = (div_yield / 100) * current_p
-
-        # 3. Decision Logic using DCF and PE
-        eps = safe_float(info.get('trailingEps'))
-        if not eps:
-            # Try to calculate EPS from financials
-            try:
-                income = stock.financials
-                if not income.empty and 'Net Income' in income.index:
-                    net_income = income.loc['Net Income'].iloc[0]
-                    shares = fast.shares or info.get('sharesOutstanding')
-                    if shares:
-                        eps = net_income / shares
-            except: pass
-
-        dcf_val = val_service.run_dcf_model()
-        intrinsic = safe_float(dcf_val.get('intrinsic_price')) or current_p
-        
-        # Status logic
+        # Determine Status
         status = "NEUTRAL"
-        if intrinsic > current_p * 1.15: status = "UNDERVALUED"
-        elif intrinsic < current_p * 0.85: status = "OVERVALUED"
+        if intrinsic > current_p * 1.10: status = "UNDERVALUED"
+        elif intrinsic < current_p * 0.90: status = "OVERVALUED"
 
         # 4. Performance
         perf = {}
-        for p in [("1M", "1mo"), ("YTD", "ytd"), ("1Y", "1y"), ("3Y", "3y"), ("5Y", "5y")]:
-            h = stock.history(period=p[1])
-            if not h.empty:
-                s, e = h.iloc[0]['Close'], h.iloc[-1]['Close']
-                perf[p[0]] = round(((e - s)/s)*100, 2)
+        periods = [("1M", "1mo"), ("YTD", "ytd"), ("1Y", "1y"), ("3Y", "3y"), ("5Y", "5y")]
+        for label, p_code in periods:
+            try:
+                h = stock.history(period=p_code)
+                if not h.empty:
+                    s, e = h.iloc[0]['Close'], h.iloc[-1]['Close']
+                    perf[label] = round(((e - s)/s)*100, 2)
+            except: perf[label] = 0.0
 
-        # 5. Industry Averages (Smart Fallback)
-        industry = info.get('industry', 'Exchange Traded Fund' if is_etf else 'Technology')
-        sector = info.get('sector', 'N/A')
+        # 5. Metadata
+        is_etf = info.get('quoteType') == 'ETF'
+        industry = info.get('industry') or info.get('sector') or ("Exchange Traded Fund" if is_etf else "Finance/Other")
         
-        # Dynamic averages based on sector if possible
-        avg_pe = 25.0
-        if sector == 'Technology': avg_pe = 35.0
-        elif sector == 'Financial Services': avg_pe = 15.0
-        elif sector == 'Healthcare': avg_pe = 22.0
-        
-        # 6. Peers
-        peers = []
-        # In a real app, we'd fetch actual peers. Here we can use some top stocks if technology
-        if sector == 'Technology' and ticker != 'AAPL': peers.append({"ticker": "AAPL", "pe_now": 30.5, "eps_now": 6.5, "div_price_now": 0.5})
-        if sector == 'Technology' and ticker != 'MSFT': peers.append({"ticker": "MSFT", "pe_now": 35.2, "eps_now": 11.8, "div_price_now": 0.7})
-
-        return json_compatible({
+        # 6. Build Clean Response
+        response_data = {
             "ticker": ticker,
-            "type": quote_type,
+            "type": info.get('quoteType', 'EQUITY'),
             "industry": industry,
             "metrics": {
-                "price": current_p, "intrinsic": intrinsic, "status": status,
-                "eps": eps, "pe": safe_float(info.get('trailingPE')), "mkt_cap": safe_float(fast.market_cap) or safe_float(info.get('marketCap')),
-                "div_annual": safe_float(div_rate), "div_yield": safe_float(div_yield),
-                "beta": safe_float(info.get('beta')), "expense_ratio": safe_float(exp), "exchange": info.get('exchange')
+                "price": current_p, 
+                "intrinsic": intrinsic, 
+                "status": status,
+                "eps": safe_float(info.get('trailingEps')), 
+                "pe": safe_float(info.get('trailingPE')), 
+                "mkt_cap": safe_float(info.get('marketCap')),
+                "div_annual": safe_float(info.get('dividendRate')) or 0.0, 
+                "div_yield": safe_float(info.get('dividendYield', 0) * 100) or 0.0,
+                "beta": safe_float(info.get('beta')), 
+                "expense_ratio": safe_float(info.get('trailingAnnualDividendYield')) or 0.0, # Placeholder if missing
+                "exchange": info.get('exchange')
             },
-            "holdings": holdings,
-            "averages": {"pe": avg_pe, "eps": 4.5, "div": 1.8, "risk": 1.0, "exp": 0.5, "mkt": 200000000000},
+            "holdings": [], # ETFs would need more complex scraping
+            "averages": {
+                "pe": 25.0, "eps": 4.5, "div": 1.5, "risk": 1.0, "exp": 0.5, "mkt": 100000000000
+            },
             "performance": perf,
-            "peers": peers, 
-            "info": {"name": info.get('longName', ticker), "summary": info.get('longBusinessSummary', 'No company summary available.')},
-            "news": stock.news[:3] if stock.news else []
-        })
+            "peers": [], 
+            "info": {
+                "name": info.get('longName', ticker), 
+                "summary": info.get('longBusinessSummary', "No detailed description available at this time.")
+            },
+            "news": stock.news[:3] if hasattr(stock, 'news') and stock.news else []
+        }
+        
+        logger.info(f"SUCCESS: Analysis complete for {ticker}")
+        return json_compatible(response_data)
+
+    except HTTPException: raise
     except Exception as e:
-        logger.error(f"Error in analyze: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Data fetch failed: {str(e)}")
+        logger.error(f"GLOBAL ERROR in /analyze/{ticker}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal server error occurred while fetching data.")
 
 @app.get("/api/history/{ticker}")
 @app.get("/history/{ticker}")
@@ -202,30 +167,24 @@ async def get_history(ticker: str, period: str = Query("1wk")):
         if hist.empty: return {"data": []}
         col = 'Date' if 'Date' in hist.columns else 'Datetime'
         hist['date'] = hist[col].dt.strftime('%m-%d %H:%M')
-        lows, highs = hist['Low'].min(), hist['High'].max()
         start_p, end_p = hist.iloc[0]['Close'], hist.iloc[-1]['Close']
+        lows, highs = hist['Low'].min(), hist['High'].max()
         return json_compatible({
             "data": hist[['date', 'Close']].rename(columns={'Close': 'price'}).to_dict(orient='records'),
             "zones": {"support": {"low": lows * 0.99, "high": lows * 1.01}, "resistance": {"low": highs * 0.99, "high": highs * 1.01}},
             "performance": {"is_positive": end_p >= start_p, "pct": round(((end_p - start_p)/start_p)*100, 2)}
         })
-    except Exception as e:
-        logger.error(f"Error in history: {e}")
-        return {"data": []}
+    except: return {"data": []}
 
 @app.get("/api/forecast/{ticker}")
 @app.get("/forecast/{ticker}")
 async def get_forecast(ticker: str):
     try:
         engine = ForecastEngine(ticker.upper())
-        result = engine.run_forecast()
-        return json_compatible(result) if result else {}
-    except Exception as e:
-        logger.error(f"Error in forecast: {e}")
-        return {}
+        return json_compatible(engine.run_forecast())
+    except: return {}
 
-# SERVE FRONTEND
-# Serve Frontend Static Files
+# UI SERVER LOGIC
 frontend_dist = os.path.abspath(os.path.join(current_dir, "..", "frontend", "dist"))
 
 if os.path.exists(frontend_dist):
@@ -233,14 +192,11 @@ if os.path.exists(frontend_dist):
     
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
-        # Prevent intercepting API calls
         if full_path.startswith("api/") or full_path.startswith("health"):
-            return None # This won't work as expected in a catch-all, but order matters
-        
+            return None
         file_path = os.path.join(frontend_dist, full_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
-            
         return FileResponse(os.path.join(frontend_dist, "index.html"))
 
 @app.get("/")
@@ -248,7 +204,7 @@ async def root():
     index_path = os.path.join(frontend_dist, "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
-    return {"message": "API is running, but frontend was not built."}
+    return {"status": "ok", "message": "API Running. UI build not found."}
 
 if __name__ == "__main__":
     import uvicorn
