@@ -1,21 +1,23 @@
 services:
   # Backend API (Python/FastAPI)
   - type: web
-    name: finadvisor-api
-    env: python
+    name: finadvisor-backend
+    runtime: python
     plan: free
     region: oregon
-    buildCommand: pip install -r backend/requirements.txt
-    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: "3.10.0"
+    rootDir: backend
 
   # Frontend (Static Site / Vite React)
   - type: static
     name: finadvisor-ui
-    buildCommand: cd frontend && npm install && npm run build
-    publishPath: ./frontend/dist
+    buildCommand: npm install && npm run build
+    publishPath: ./dist
+    rootDir: frontend
     routes:
       - type: rewrite
         source: /*
@@ -24,5 +26,5 @@ services:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: finadvisor-api
+          name: finadvisor-backend
           property: url

@@ -4,20 +4,12 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import logging
-import asyncio
-from datetime import datetime, timedelta
 from services.forecaster import ForecastEngine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
-# Add logging to see which routes are registered
-@app.on_event("startup")
-async def startup_event():
-    for route in app.routes:
-        logger.info(f"Registered route: {route.path}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,8 +20,8 @@ app.add_middleware(
 )
 
 @app.get("/")
+@app.get("/health")
 async def health_check():
-    logger.info("Health check hit")
     return {"status": "ok", "message": "FinAdvisor API is running"}
 
 def json_compatible(item):
@@ -52,7 +44,6 @@ def safe_float(value, decimals=2):
 @app.get("/analyze/{ticker}")
 async def analyze_stock(ticker: str):
     ticker = ticker.upper().strip()
-    logger.info(f"Analyze hit for ticker: {ticker}")
     try:
         stock = yf.Ticker(ticker)
         info = stock.info or {}
@@ -61,11 +52,9 @@ async def analyze_stock(ticker: str):
         quote_type = info.get('quoteType', 'EQUITY')
         is_etf = quote_type == 'ETF'
         
-        # 1. ETF Specific Data: Holdings
         holdings = []
         if is_etf:
             try:
-                # Top holdings are often in info or funds_data
                 raw_holdings = info.get('topHoldings', [])
                 for h in raw_holdings[:10]:
                     holdings.append({
@@ -75,7 +64,6 @@ async def analyze_stock(ticker: str):
                     })
             except: pass
 
-        # 2. Metrics & Expense Ratio
         exp = info.get('netExpenseRatio') or info.get('annualReportExpenseRatio') or info.get('expenseRatio')
         if exp is None and is_etf:
             try:
@@ -92,7 +80,6 @@ async def analyze_stock(ticker: str):
         current_p = safe_float(fast.last_price) or safe_float(info.get('currentPrice'))
         if (not div_rate or div_rate == 0) and div_yield > 0 and current_p: div_rate = (div_yield / 100) * current_p
 
-        # 3. Decision Logic
         eps = safe_float(info.get('trailingEps'))
         growth = info.get('earningsGrowth') or 0.15
         intrinsic = abs(eps * (growth * 100)) if eps else current_p
@@ -101,7 +88,6 @@ async def analyze_stock(ticker: str):
         if intrinsic > current_p * 1.05: status = "UNDERVALUED"
         elif intrinsic < current_p * 0.95: status = "OVERVALUED"
 
-        # 4. Returns & Metadata
         perf = {}
         for p in [("1M", "1mo"), ("YTD", "ytd"), ("1Y", "1y"), ("3Y", "3y"), ("5Y", "5y")]:
             h = stock.history(period=p[1])
@@ -127,12 +113,11 @@ async def analyze_stock(ticker: str):
             "news": stock.news[:3] if stock.news else []
         })
     except Exception as e:
-        logger.error(f"Error: {e}")
-        raise HTTPException(status_code=500, detail="Data fetch failed.")
+        logger.error(f"Error in analyze: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/history/{ticker}")
 async def get_history(ticker: str, period: str = Query("1wk")):
-    logger.info(f"History hit for ticker: {ticker}, period: {period}")
     try:
         stock = yf.Ticker(ticker.upper())
         interval = "1d"
@@ -149,20 +134,18 @@ async def get_history(ticker: str, period: str = Query("1wk")):
             "zones": {"support": {"low": lows * 0.99, "high": lows * 1.01}, "resistance": {"low": highs * 0.99, "high": highs * 1.01}},
             "performance": {"is_positive": end_p >= start_p, "pct": round(((end_p - start_p)/start_p)*100, 2)}
         })
-    except: return {"data": []}
+    except Exception as e:
+        logger.error(f"Error in history: {e}")
+        return {"data": []}
 
 @app.get("/forecast/{ticker}")
 async def get_forecast(ticker: str):
-    logger.info(f"Forecast hit for ticker: {ticker}")
     try:
         engine = ForecastEngine(ticker.upper())
         return json_compatible(engine.run_forecast())
-    except: return {}
-
-@app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE"])
-async def catch_all(path_name: str):
-    logger.info(f"Catch-all hit: {path_name}")
-    return {"error": "Not Found", "path": path_name, "message": "Requested path not found."}
+    except Exception as e:
+        logger.error(f"Error in forecast: {e}")
+        return {}
 
 if __name__ == "__main__":
     import uvicorn
