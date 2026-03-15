@@ -1,11 +1,10 @@
 services:
   # 1. Backend API (Python/FastAPI)
   - type: web
-    name: finadvisor-backend-v8
+    name: fin-advisor-backend-v9
     env: python
     plan: free
     region: oregon
-    rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -16,11 +15,10 @@ services:
 
   # 2. Frontend (Static Site / Vite React)
   - type: web
-    name: finadvisor-frontend-v8
+    name: fin-advisor-frontend-v9
     env: static
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
     routes:
       - type: rewrite
         source: /*
@@ -29,5 +27,5 @@ services:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: finadvisor-backend-v8
+          name: fin-advisor-backend-v9
           property: host
