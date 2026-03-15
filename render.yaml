@@ -13,7 +13,6 @@ services:
     rootDir: backend
 
   # 2. Frontend (Static Site / Vite React)
-  # Correct Blueprint configuration for Static Sites:
   - type: web
     name: fin-advisor-ui
     runtime: static
@@ -29,4 +28,4 @@ services:
         fromService:
           type: web
           name: fin-advisor-api-v3
-          property: url
+          property: host
