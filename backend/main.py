@@ -20,7 +20,7 @@ app.add_middleware(
 )
 
 @app.get("/")
-@app.get("/health")
+@app.get("/api/health")
 async def health_check():
     return {"status": "ok", "message": "FinAdvisor API is running"}
 
@@ -41,7 +41,7 @@ def safe_float(value, decimals=2):
         return round(float(value), decimals)
     except: return None
 
-@app.get("/analyze/{ticker}")
+@app.get("/api/analyze/{ticker}")
 async def analyze_stock(ticker: str):
     ticker = ticker.upper().strip()
     try:
@@ -116,7 +116,7 @@ async def analyze_stock(ticker: str):
         logger.error(f"Error in analyze: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/history/{ticker}")
+@app.get("/api/history/{ticker}")
 async def get_history(ticker: str, period: str = Query("1wk")):
     try:
         stock = yf.Ticker(ticker.upper())
@@ -138,7 +138,7 @@ async def get_history(ticker: str, period: str = Query("1wk")):
         logger.error(f"Error in history: {e}")
         return {"data": []}
 
-@app.get("/forecast/{ticker}")
+@app.get("/api/forecast/{ticker}")
 async def get_forecast(ticker: str):
     try:
         engine = ForecastEngine(ticker.upper())

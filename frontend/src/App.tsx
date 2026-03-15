@@ -22,7 +22,7 @@ function App() {
   ];
 
   const rawApiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
-  const API_BASE = rawApiBase.startsWith('http') ? rawApiBase : `https://${rawApiBase}`;
+  const API_BASE = (rawApiBase.startsWith('http') ? rawApiBase : `https://${rawApiBase}`) + '/api';
 
   useEffect(() => {
     console.log("Constructed API Base:", API_BASE);
