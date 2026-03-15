@@ -1,5 +1,5 @@
 services:
-  # Backend API (Python/FastAPI)
+  # 1. Backend API (Python/FastAPI)
   - type: web
     name: fin-advisor-api-v3
     runtime: python
@@ -12,9 +12,11 @@ services:
         value: "3.10.0"
     rootDir: backend
 
-  # Frontend (Static Site / Vite React)
-  - type: static
+  # 2. Frontend (Static Site / Vite React)
+  # In Render Blueprints, Static Sites use type: web with runtime: static
+  - type: web
     name: fin-advisor-ui
+    runtime: static
     buildCommand: npm install && npm run build
     publishPath: dist
     rootDir: frontend
