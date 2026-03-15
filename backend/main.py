@@ -1,12 +1,17 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pandas as pd
 import numpy as np
 import logging
+import sys
 from services.forecaster import ForecastEngine
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
@@ -19,7 +24,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"Incoming request: {request.method} {request.url.path}")
+    response = await call_next(request)
+    logger.info(f"Response status: {response.status_code}")
+    return response
+
 @app.get("/")
+@app.get("/health")
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok", "message": "FinAdvisor API is running"}
@@ -42,6 +55,7 @@ def safe_float(value, decimals=2):
     except: return None
 
 @app.get("/api/analyze/{ticker}")
+@app.get("/analyze/{ticker}")
 async def analyze_stock(ticker: str):
     ticker = ticker.upper().strip()
     try:
@@ -117,6 +131,7 @@ async def analyze_stock(ticker: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/history/{ticker}")
+@app.get("/history/{ticker}")
 async def get_history(ticker: str, period: str = Query("1wk")):
     try:
         stock = yf.Ticker(ticker.upper())
@@ -139,6 +154,7 @@ async def get_history(ticker: str, period: str = Query("1wk")):
         return {"data": []}
 
 @app.get("/api/forecast/{ticker}")
+@app.get("/forecast/{ticker}")
 async def get_forecast(ticker: str):
     try:
         engine = ForecastEngine(ticker.upper())

@@ -1,7 +1,7 @@
 services:
   # Backend API (Python/FastAPI)
   - type: web
-    name: finadvisor-backend
+    name: fin-advisor-api-v3
     runtime: python
     plan: free
     region: oregon
@@ -14,9 +14,9 @@ services:
 
   # Frontend (Static Site / Vite React)
   - type: static
-    name: finadvisor-ui
+    name: fin-advisor-ui
     buildCommand: npm install && npm run build
-    publishPath: ./dist
+    publishPath: dist
     rootDir: frontend
     routes:
       - type: rewrite
@@ -26,5 +26,5 @@ services:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: finadvisor-backend
+          name: fin-advisor-api-v3
           property: url
