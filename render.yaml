@@ -1,7 +1,7 @@
 services:
-  # 1. Backend API (Your current 'fin-ed' service)
+  # 1. Backend (Using your successful 'fin-advisor-api-v3')
   - type: web
-    name: fin-ed
+    name: fin-advisor-api-v3
     env: python
     plan: free
     region: oregon
@@ -13,7 +13,7 @@ services:
       - key: PYTHONPATH
         value: .
 
-  # 2. Frontend UI (Your current 'fin-advisor-ui' service)
+  # 2. Frontend (Static Site)
   - type: static
     name: fin-advisor-ui
     buildCommand: cd frontend && npm install && npm run build
@@ -26,5 +26,5 @@ services:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: fin-ed
+          name: fin-advisor-api-v3
           property: host

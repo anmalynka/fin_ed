@@ -21,8 +21,18 @@ function App() {
     { label: '3M', value: '3mo' }, { label: 'YTD', value: 'ytd' }, { label: '1Y', value: '1y' }, { label: '5Y', value: '5y' }
   ];
 
-  const rawApiBase = (import.meta.env.VITE_API_URL || 'https://fin-ed.onrender.com' || 'http://localhost:8000').replace(/\/$/, '');
-  const API_BASE = (rawApiBase.startsWith('http') ? rawApiBase : `https://${rawApiBase}`) + '/api';
+  const rawApiBase = (import.meta.env.VITE_API_URL || 'fin-ed.onrender.com').replace(/\/$/, '');
+  let fullBase = rawApiBase;
+  
+  if (!fullBase.startsWith('http')) {
+    // If it's a Render service name without a domain (e.g. 'fin-advisor-api-v3')
+    if (!fullBase.includes('.')) {
+      fullBase += '.onrender.com';
+    }
+    fullBase = `https://${fullBase}`;
+  }
+  
+  const API_BASE = fullBase.replace(/\/$/, '') + '/api';
 
   useEffect(() => {
     console.log("Constructed API Base:", API_BASE);
