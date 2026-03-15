@@ -21,7 +21,12 @@ function App() {
     { label: '3M', value: '3mo' }, { label: 'YTD', value: 'ytd' }, { label: '1Y', value: '1y' }, { label: '5Y', value: '5y' }
   ];
 
-  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const rawApiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const API_BASE = rawApiBase.startsWith('http') ? rawApiBase : `https://${rawApiBase}`;
+
+  useEffect(() => {
+    console.log("Current API Base:", API_BASE);
+  }, [API_BASE]);
 
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
