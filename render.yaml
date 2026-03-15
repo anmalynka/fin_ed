@@ -1,24 +1,23 @@
 services:
-  # 1. Backend Service (FastAPI)
+  # 1. Backend (FastAPI)
   - type: web
     name: fin-advisor-backend-v9
     env: python
     plan: free
     region: oregon
+    rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: "3.10.0"
-      - key: PYTHONPATH
-        value: .
 
-  # 2. Frontend Service (Static Site)
-  # Changing to 'type: static' ensures Render serves your UI assets, not the API code.
+  # 2. Frontend (Static Site)
   - type: static
     name: fin-advisor-frontend-v9
-    buildCommand: cd frontend && npm install && npm run build
-    publishPath: frontend/dist
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    publishPath: dist
     routes:
       - type: rewrite
         source: /*
