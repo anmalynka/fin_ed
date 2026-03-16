@@ -4,6 +4,7 @@ import random
 
 # CRITICAL: Path fix for services import
 current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, ".."))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
@@ -32,6 +33,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# HELPER: Find Frontend Dist
+def find_frontend_dist():
+    possible_paths = [
+        os.path.join(project_root, "frontend", "dist"),
+        os.path.join(current_dir, "..", "frontend", "dist"),
+        "/opt/render/project/src/frontend/dist"
+    ]
+    for p in possible_paths:
+        abs_p = os.path.abspath(p)
+        if os.path.exists(abs_p):
+            logger.info(f"FOUND FRONTEND DIST AT: {abs_p}")
+            return abs_p
+    logger.error("COULD NOT FIND FRONTEND DIST IN ANY KNOWN LOCATION")
+    return None
+
+frontend_dist = find_frontend_dist()
+
 def json_compatible(item):
     if isinstance(item, dict): return {k: json_compatible(v) for k, v in item.items()}
     elif isinstance(item, (list, tuple, set)): return [json_compatible(i) for i in item]
@@ -49,29 +67,15 @@ def safe_float(value, decimals=2):
         return round(float(value), decimals)
     except: return None
 
-def get_mock_data(ticker):
-    """Generates high-quality mock data for testing or when APIs are blocked."""
-    logger.info(f"Generating mock data for {ticker}")
-    price = random.uniform(150, 350)
-    intrinsic = price * random.uniform(0.8, 1.2)
+@app.get("/api/debug-paths")
+async def debug_paths():
     return {
-        "ticker": ticker,
-        "type": "EQUITY",
-        "industry": "Technology / Analytics",
-        "metrics": {
-            "price": safe_float(price), "intrinsic": safe_float(intrinsic), "status": "NEUTRAL",
-            "eps": 5.42, "pe": 28.5, "mkt_cap": 250000000000,
-            "div_annual": 1.20, "div_yield": 0.8, "beta": 1.15, "expense_ratio": 0.0, "exchange": "NYSE"
-        },
-        "holdings": [],
-        "averages": {"pe": 25.0, "eps": 4.5, "div": 1.5, "risk": 1.0, "exp": 0.5, "mkt": 100000000000},
-        "performance": {"1M": 2.5, "YTD": 12.4, "1Y": 25.1, "3Y": 45.0, "5Y": 120.0},
-        "peers": [], 
-        "info": {"name": f"{ticker} Corp", "summary": "Live data retrieval is temporarily restricted. Showing simulated institutional metrics for UI verification."},
-        "news": []
+        "current_dir": current_dir,
+        "project_root": project_root,
+        "frontend_dist_found": frontend_dist,
+        "exists": os.path.exists(frontend_dist) if frontend_dist else False,
+        "contents": os.listdir(frontend_dist) if frontend_dist and os.path.exists(frontend_dist) else []
     }
-
-# --- API ROUTES FIRST ---
 
 @app.get("/api/health")
 @app.get("/health")
@@ -87,11 +91,17 @@ async def analyze_stock(ticker: str):
         current_p = safe_float(getattr(stock.fast_info, 'last_price', None)) or safe_float(info.get('currentPrice'))
         
         if current_p is None:
-            return json_compatible(get_mock_data(ticker))
+            # Try history as last resort
+            h = stock.history(period="1d")
+            if not h.empty:
+                current_p = safe_float(h['Close'].iloc[-1])
+
+        if current_p is None:
+            raise HTTPException(status_code=404, detail="Ticker not found")
 
         val_service = ValuationService(ticker)
         dcf = val_service.run_dcf_model()
-        intrinsic = safe_float(dcf.get('intrinsic_price')) or current_p
+        intrinsic = safe_float(dcf.get('intrinsic_price')) or (current_p * 1.1)
         
         return json_compatible({
             "ticker": ticker,
@@ -101,7 +111,7 @@ async def analyze_stock(ticker: str):
                 "price": current_p, "intrinsic": intrinsic, "status": "NEUTRAL",
                 "eps": safe_float(info.get('trailingEps')) or 0.0, 
                 "pe": safe_float(info.get('trailingPE')) or 20.0, 
-                "mkt_cap": safe_float(getattr(stock.fast_info, 'market_cap', None)) or safe_float(info.get('marketCap')),
+                "mkt_cap": safe_float(info.get('marketCap')) or 1000000000,
                 "div_annual": safe_float(info.get('dividendRate')) or 0.0, 
                 "div_yield": safe_float(info.get('dividendYield', 0) * 100) or 0.0,
                 "beta": safe_float(info.get('beta')) or 1.0, 
@@ -114,8 +124,9 @@ async def analyze_stock(ticker: str):
             "info": {"name": info.get('longName', ticker), "summary": info.get('longBusinessSummary', "")},
             "news": []
         })
-    except:
-        return json_compatible(get_mock_data(ticker))
+    except Exception as e:
+        logger.error(f"Error in analyze: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/history/{ticker}")
 async def get_history(ticker: str, period: str = Query("1wk")):
@@ -123,7 +134,9 @@ async def get_history(ticker: str, period: str = Query("1wk")):
         stock = yf.Ticker(ticker.upper())
         hist = stock.history(period=period).reset_index()
         if hist.empty: return {"data": []}
-        hist['date'] = hist['Date'].dt.strftime('%m-%d %H:%M')
+        # Use 'Date' or 'Datetime' depending on period
+        col = 'Date' if 'Date' in hist.columns else 'Datetime'
+        hist['date'] = hist[col].dt.strftime('%m-%d %H:%M')
         return json_compatible({
             "data": hist[['date', 'Close']].rename(columns={'Close': 'price'}).to_dict(orient='records'),
             "zones": {"support": {"low": 0, "high": 0}, "resistance": {"low": 0, "high": 0}},
@@ -138,28 +151,32 @@ async def get_forecast(ticker: str):
         return json_compatible(engine.run_forecast())
     except: return {}
 
-# --- STATIC FILES LAST ---
+# --- STATIC FILES / UI SERVING (MUST BE LAST) ---
 
-frontend_dist = os.path.abspath(os.path.join(current_dir, "..", "frontend", "dist"))
-
-if os.path.exists(frontend_dist):
-    # Serve static assets (js, css, images)
+if frontend_dist:
     app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
 
-    # Catch-all for UI
     @app.get("/{rest_of_path:path}")
-    async def serve_ui(request: Request, rest_of_path: str):
-        # Explicitly ignore API calls
+    async def serve_ui(rest_of_path: str):
+        # 1. If it's an API route, don't handle it here
         if rest_of_path.startswith("api/") or rest_of_path.startswith("health"):
             raise HTTPException(status_code=404)
             
-        # Check if it's a file
+        # 2. Check if it's a specific file (favicon, etc)
         file_path = os.path.join(frontend_dist, rest_of_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
             
-        # Default to index.html
+        # 3. Default to index.html
         return FileResponse(os.path.join(frontend_dist, "index.html"))
+
+@app.get("/")
+async def root():
+    if frontend_dist:
+        index_path = os.path.join(frontend_dist, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+    return {"status": "ok", "message": "API Running. UI files not found in frontend/dist."}
 
 if __name__ == "__main__":
     import uvicorn
