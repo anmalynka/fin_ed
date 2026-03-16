@@ -22,8 +22,10 @@ function App() {
   ];
 
   const API_BASE = window.location.hostname === 'localhost' 
-    ? 'http://localhost:8000/api' 
-    : '/api';
+    ? 'http://localhost:8000/api'
+    : window.location.hostname.includes('fin-advisor-ui')
+      ? 'https://fin-ed.onrender.com/api' 
+      : '/api';
 
   useEffect(() => {
     console.log("Constructed API Base:", API_BASE);
