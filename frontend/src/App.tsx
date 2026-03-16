@@ -315,6 +315,13 @@ function App() {
           </div>
         )}
       </main>
+      
+      <footer className="max-w-7xl mx-auto mt-12 pb-10 border-t border-slate-100 pt-8 flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-slate-300">
+        <div>&copy; 2026 FINADVISOR</div>
+        <div className="px-4 py-1 bg-slate-100 rounded-full text-slate-500">
+          Connected to: <span className="text-rose-700">{API_BASE}</span>
+        </div>
+      </footer>
     </div>
   );
 }
