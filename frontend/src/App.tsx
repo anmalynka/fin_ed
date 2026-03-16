@@ -91,6 +91,38 @@ function App() {
     </div>
   );
 
+  const EmptyState = () => (
+    <div className="flex flex-col items-center justify-center py-20 animate-in fade-in zoom-in duration-700">
+      <div className="relative mb-8">
+        <div className="absolute inset-0 bg-rose-100 rounded-full blur-3xl opacity-40 animate-pulse"></div>
+        <div className="relative w-32 h-32 bg-white rounded-[40px] border border-slate-100 shadow-xl flex items-center justify-center">
+          <Activity size={48} className="text-rose-600" />
+        </div>
+        <div className="absolute -bottom-2 -right-2 w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center text-white shadow-lg border-4 border-white">
+          <Search size={20} />
+        </div>
+      </div>
+      <h2 className="text-3xl font-black text-slate-800 tracking-tight mb-2">Ready to Analyze?</h2>
+      <p className="text-slate-400 font-bold text-center max-w-sm">Enter a stock or ETF ticker above to unlock institutional-grade financial intelligence and AI forecasts.</p>
+      <div className="mt-8 flex gap-3">
+        {['AAPL', 'NVDA', 'SPY', 'SCHD'].map(t => (
+          <button key={t} onClick={() => { setTicker(t); setTimeout(() => handleSearch(), 0); }} className="px-4 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[10px] font-black uppercase text-slate-500 hover:bg-white hover:shadow-sm transition-all">{t}</button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const NotFoundState = () => (
+    <div className="flex flex-col items-center justify-center py-20 animate-in slide-in-from-bottom-10 duration-500">
+      <div className="w-32 h-32 bg-rose-50 rounded-[40px] flex items-center justify-center mb-8 border border-rose-100 shadow-inner">
+        <Info size={48} className="text-rose-700 opacity-50" />
+      </div>
+      <h2 className="text-3xl font-black text-slate-800 tracking-tight mb-2 uppercase italic">Ticker Not Found</h2>
+      <p className="text-slate-400 font-bold text-center max-w-sm">We couldn't retrieve data for <span className="text-rose-700">"${ticker}"</span>. Please check the symbol and try again.</p>
+      <button onClick={() => {setErrorMessage(''); setTicker('');}} className="mt-8 px-8 py-3 bg-slate-900 text-white rounded-[20px] text-xs font-black uppercase tracking-widest shadow-lg hover:bg-rose-700 transition-colors">Clear Search</button>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-[#fafafa] text-slate-900 p-6 font-sans">
       <nav className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center mb-10 gap-4">
@@ -105,11 +137,9 @@ function App() {
       </nav>
 
       <main className="max-w-7xl mx-auto">
-        {errorMessage && (
-          <div className="bg-rose-50 border border-rose-100 text-rose-700 p-4 rounded-2xl mb-6 font-bold text-sm text-center">
-            {errorMessage}
-          </div>
-        )}
+        {!data && !loading && !errorMessage && <EmptyState />}
+        {errorMessage && <NotFoundState />}
+        
         {data && (
           <div className="space-y-6 animate-in fade-in duration-700">
             {/* Header */}
@@ -132,14 +162,25 @@ function App() {
               
               {data.type !== 'ETF' && (
                 <div className={`p-8 rounded-[32px] text-white flex flex-col justify-center text-center shadow-xl transition-all duration-500 ${
-                  data.metrics?.status === 'UNDERVALUED' ? 'bg-emerald-600' : data.metrics?.status === 'OVERVALUED' ? 'bg-rose-600' : 'bg-slate-700'
+                  data.metrics?.intrinsic > data.metrics?.price ? 'bg-emerald-600' : 'bg-rose-600'
                 }`}>
-                   <p className="text-[11px] font-black uppercase tracking-widest opacity-70 mb-1 text-white">Fair Value Decision</p>
-                   <p className="text-5xl font-mono font-black tracking-tighter text-white">${formatPrice(data.metrics?.intrinsic)}</p>
-                   <div className="mt-4 bg-white/10 p-3 rounded-2xl text-[10px] font-bold leading-relaxed uppercase text-white">
-                      {data.metrics?.status === 'UNDERVALUED' ? "Asset is UNDERVALUED. BUY SIGNAL." : 
-                       data.metrics?.status === 'OVERVALUED' ? "Asset is OVERVALUED. Price is high." : "Fairly priced relative to growth."}
-                   </div>
+                   <p className="text-[11px] font-black uppercase tracking-widest opacity-70 mb-1 text-white">Intrinsic Fair Price (DCF)</p>
+                   {data.metrics?.error ? (
+                     <p className="text-xl font-black text-white px-4 leading-tight py-2 uppercase italic">{data.metrics.error}</p>
+                   ) : (
+                     <>
+                      <p className="text-5xl font-mono font-black tracking-tighter text-white">${formatPrice(data.metrics?.intrinsic)}</p>
+                      
+                      <div className="mt-4">
+                          <div className="bg-white/10 p-3 rounded-2xl text-[10px] font-bold leading-relaxed uppercase text-white">
+                              {data.metrics?.intrinsic > data.metrics?.price ? 
+                                `Undervalued by ${Math.abs(((data.metrics.intrinsic - data.metrics.price)/data.metrics.price)*100).toFixed(1)}%. INVESTMENT OPPORTUNITY.` : 
+                                `Overvalued by ${Math.abs(((data.metrics.intrinsic - data.metrics.price)/data.metrics.price)*100).toFixed(1)}%. SELL SIGNAL / CAUTION.`
+                              }
+                          </div>
+                      </div>
+                     </>
+                   )}
                 </div>
               )}
             </div>

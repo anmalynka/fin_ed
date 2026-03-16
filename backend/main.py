@@ -102,24 +102,49 @@ async def analyze_stock(ticker: str):
         val_service = ValuationService(ticker)
         dcf = val_service.run_dcf_model()
         intrinsic = safe_float(dcf.get('intrinsic_price')) or (current_p * 1.1)
+        status = dcf.get('status', 'NEUTRAL')
+        calculation = dcf.get('calculation', "")
+        comment = dcf.get('comment', "")
+        error = dcf.get('error')
+        industry_pe = safe_float(dcf.get('industry_pe')) or 20.0
         
+        # Real Performance Data
+        performance = val_service.get_performance_history()
+        
+        # Dividend & Expense Ratio Logic
+        div_annual = safe_float(info.get('dividendRate')) or safe_float(info.get('trailingAnnualDividendRate')) or 0.0
+        div_yield = safe_float(info.get('dividendYield')) or safe_float(info.get('trailingAnnualDividendYield')) or safe_float(info.get('yield')) or 0.0
+        
+        # yfinance yield can be 0.033 (decimal) or 3.3 (percent). 
+        if div_yield and div_yield < 0.2: div_yield *= 100
+        
+        # CRITICAL FALLBACK: If div_annual is 0 but yield exists, calculate it
+        if div_annual == 0 and div_yield > 0 and current_p:
+            div_annual = round((div_yield / 100) * current_p, 2)
+        
+        expense_ratio = safe_float(info.get('netExpenseRatio'))
+        # Expense ratios are usually very small (e.g., 0.03% or 0.09%).
+        if expense_ratio and expense_ratio < 0.01: expense_ratio *= 100
+
         return json_compatible({
             "ticker": ticker,
             "type": info.get('quoteType', 'EQUITY'),
             "industry": info.get('industry') or "Finance",
             "metrics": {
-                "price": current_p, "intrinsic": intrinsic, "status": "NEUTRAL",
+                "price": current_p, "intrinsic": intrinsic, "status": status,
+                "calculation": calculation, "comment": comment, "error": error,
                 "eps": safe_float(info.get('trailingEps')) or 0.0, 
                 "pe": safe_float(info.get('trailingPE')) or 20.0, 
                 "mkt_cap": safe_float(info.get('marketCap')) or 1000000000,
-                "div_annual": safe_float(info.get('dividendRate')) or 0.0, 
-                "div_yield": safe_float(info.get('dividendYield', 0) * 100) or 0.0,
+                "div_annual": div_annual, 
+                "div_yield": div_yield,
                 "beta": safe_float(info.get('beta')) or 1.0, 
-                "expense_ratio": 0.0, "exchange": info.get('exchange', 'NYSE')
+                "expense_ratio": expense_ratio or 0.0, 
+                "exchange": info.get('exchange', 'NYSE')
             },
             "holdings": [],
-            "averages": {"pe": 25.0, "eps": 4.5, "div": 1.5, "risk": 1.0, "exp": 0.5, "mkt": 100000000000},
-            "performance": {"1M": 0, "YTD": 0, "1Y": 0, "3Y": 0, "5Y": 0},
+            "averages": {"pe": industry_pe, "eps": 4.5, "div": 1.5, "risk": 1.0, "exp": 0.5, "mkt": 100000000000},
+            "performance": performance,
             "peers": [], 
             "info": {"name": info.get('longName', ticker), "summary": info.get('longBusinessSummary', "")},
             "news": []
@@ -131,16 +156,33 @@ async def analyze_stock(ticker: str):
 @app.get("/api/history/{ticker}")
 async def get_history(ticker: str, period: str = Query("1wk")):
     try:
+        # Intelligently select interval
+        interval = "1d"
+        if period == "1d": interval = "1h"
+        elif period == "5d": interval = "1h"
+        elif period == "1mo": interval = "1d"
+        
         stock = yf.Ticker(ticker.upper())
-        hist = stock.history(period=period).reset_index()
+        hist = stock.history(period=period, interval=interval).reset_index()
         if hist.empty: return {"data": []}
+        
+        # Calculate percentage change for the period
+        first_p = hist['Close'].iloc[0]
+        last_p = hist['Close'].iloc[-1]
+        pct = round(((last_p - first_p) / first_p) * 100, 2)
+        is_pos = pct >= 0
+
         # Use 'Date' or 'Datetime' depending on period
         col = 'Date' if 'Date' in hist.columns else 'Datetime'
-        hist['date'] = hist[col].dt.strftime('%m-%d %H:%M')
+        if period == "1d":
+            hist['date'] = hist[col].dt.strftime('%H:%M')
+        else:
+            hist['date'] = hist[col].dt.strftime('%m-%d %H:%M')
+        
         return json_compatible({
             "data": hist[['date', 'Close']].rename(columns={'Close': 'price'}).to_dict(orient='records'),
             "zones": {"support": {"low": 0, "high": 0}, "resistance": {"low": 0, "high": 0}},
-            "performance": {"is_positive": True, "pct": 0}
+            "performance": {"is_positive": is_pos, "pct": pct}
         })
     except: return {"data": []}
 
