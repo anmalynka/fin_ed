@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Search, Activity, History, Info, Loader2, Cpu, BookOpen, ShieldCheck, ListOrdered } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, BarChart, Bar, Cell, LabelList, Legend } from 'recharts';
+import { Search, Activity, History, Info, Loader2, BookOpen, ShieldCheck, ListOrdered } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, LabelList } from 'recharts';
 
-import heroImg from './assets/hero.png';
 import logoImg from './assets/FA_logo.png';
 
 function App() {
@@ -11,13 +10,11 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
-  const [zones, setZones] = useState<any>(null);
   const [perfData, setPerfData] = useState<any>(null);
   const [forecastData, setForecastData] = useState<any[]>([]);
   const [period, setPeriod] = useState('5d');
   const [mode, setMode] = useState('perf');
   const [errorMessage, setErrorMessage] = useState('');
-  const [compareMetric, setCompareMetric] = useState('pe');
 
   const timeframes = [
     { label: '1D', value: '1d' }, { label: '1W', value: '5d' }, { label: '1M', value: '1mo' },
@@ -42,7 +39,6 @@ function App() {
       ]);
       setData(res.data);
       setHistory(histRes.data?.data || []);
-      setZones(histRes.data?.zones);
       setPerfData(histRes.data?.performance);
       
       const combined = [
@@ -69,7 +65,6 @@ function App() {
       const res = await axios.get(`${API_BASE}/history/${symbol}?period=${time}`);
       if (res.data) {
         setHistory(res.data.data || []);
-        setZones(res.data.zones);
         setPerfData(res.data.performance);
       }
     } catch (err) { console.error("Chart load failed"); }
