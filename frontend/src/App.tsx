@@ -156,7 +156,7 @@ function App() {
                 <div className={`p-8 rounded-[32px] text-white flex flex-col justify-center text-center shadow-xl transition-all duration-500 ${
                   data.metrics?.intrinsic > data.metrics?.price ? 'bg-emerald-600' : 'bg-rose-600'
                 }`}>
-                   <p className="text-[11px] font-black uppercase tracking-widest opacity-70 mb-1 text-white">Peter Lynch Fair Value</p>
+                   <p className="text-[11px] font-black uppercase tracking-widest opacity-70 mb-1 text-white">Blended Target Price</p>
                    {data.metrics?.error ? (
                      <p className="text-xl font-black text-white px-4 leading-tight py-2 uppercase italic">{data.metrics.error}</p>
                    ) : (
@@ -164,16 +164,9 @@ function App() {
                       <p className="text-5xl font-mono font-black tracking-tighter text-white">${formatPrice(data.metrics?.intrinsic)}</p>
                       
                       <div className="mt-4 space-y-3">
-                          <div className="bg-black/20 py-2 px-3 rounded-xl flex justify-between items-center">
-                            <div className="text-left">
-                              <p className="text-[8px] font-black uppercase tracking-widest text-white/60">Current P/E</p>
-                              <p className="text-sm font-mono font-bold">{data.metrics?.pe_current?.toFixed(1) || 'N/A'}</p>
-                            </div>
-                            <div className="h-8 w-[1px] bg-white/10"></div>
-                            <div className="text-right">
-                              <p className="text-[8px] font-black uppercase tracking-widest text-white/60">Fair P/E</p>
-                              <p className="text-sm font-mono font-bold">{data.metrics?.pe_fair?.toFixed(1) || 'N/A'}</p>
-                            </div>
+                          <div className="bg-black/20 py-2 px-3 rounded-xl">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mb-0.5">Valuation Mix (40/40/20)</p>
+                            <p className="text-[11px] font-mono font-bold text-white">{data.metrics?.calculation}</p>
                           </div>
 
                           <div className="bg-white/10 p-3 rounded-2xl text-[10px] font-bold leading-relaxed uppercase text-white">
