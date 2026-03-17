@@ -104,8 +104,8 @@ class ValuationService:
             peg_target = 1.25
             val_peg = eps * peg_target * (growth * 100)
 
-            # FINAL BLEND
-            intrinsic_price = (val_relative * 0.40) + (val_dcf * 0.40) + (val_peg * 0.20)
+            # FINAL BLEND: 40/20/40
+            intrinsic_price = (val_relative * 0.40) + (val_dcf * 0.20) + (val_peg * 0.40)
             
             if intrinsic_price < 0: intrinsic_price *= -1
 

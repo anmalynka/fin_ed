@@ -165,7 +165,7 @@ function App() {
                       
                       <div className="mt-4 space-y-3">
                           <div className="bg-black/20 py-2 px-3 rounded-xl">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mb-0.5">Valuation Mix (40/40/20)</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mb-0.5">Valuation Mix (40/20/40)</p>
                             <p className="text-[11px] font-mono font-bold text-white">{data.metrics?.calculation}</p>
                           </div>
 
