@@ -23,7 +23,11 @@ class ForecastEngine:
         last_price = prices[-1]
         
         # 2. Stochastic Projection (Geometric Brownian Motion)
-        # This creates the realistic "jagged" paths you liked
+        # Use a deterministic seed based on ticker and date for consistency
+        seed_str = f"{self.ticker}_{datetime.now().strftime('%Y-%m-%d')}"
+        seed_val = sum(ord(c) for c in seed_str)
+        rng = np.random.default_rng(seed_val)
+
         days = 252
         dt = 1
         
@@ -33,7 +37,7 @@ class ForecastEngine:
         
         forecast_path = [last_price]
         for i in range(days):
-            epsilon = np.random.normal()
+            epsilon = rng.standard_normal()
             # Drift component (Historical growth)
             drift = (mu - 0.5 * sigma**2) * dt
             # Volatility component (Ticker-specific noise)

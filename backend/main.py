@@ -67,6 +67,7 @@ def safe_float(value, decimals=2):
         return round(float(value), decimals)
     except: return None
 
+<<<<<<< HEAD
 @app.get("/api/debug-paths")
 async def debug_paths():
     return {
@@ -82,6 +83,8 @@ async def debug_paths():
 async def health_check():
     return {"status": "ok", "message": "FinAdvisor API is running"}
 
+=======
+>>>>>>> feature/new-edit
 @app.get("/api/analyze/{ticker}")
 async def analyze_stock(ticker: str):
     ticker = ticker.upper().strip()
@@ -90,6 +93,7 @@ async def analyze_stock(ticker: str):
         info = stock.info
         current_p = safe_float(getattr(stock.fast_info, 'last_price', None)) or safe_float(info.get('currentPrice'))
         
+<<<<<<< HEAD
         if current_p is None:
             # Try history as last resort
             h = stock.history(period="1d")
@@ -125,6 +129,65 @@ async def analyze_stock(ticker: str):
         expense_ratio = safe_float(info.get('netExpenseRatio'))
         # Expense ratios are usually very small (e.g., 0.03% or 0.09%).
         if expense_ratio and expense_ratio < 0.01: expense_ratio *= 100
+=======
+        # Rigorous check for ticker existence
+        if not info or (not info.get('quoteType') and not info.get('symbol') and not info.get('regularMarketPrice')):
+            if not getattr(fast, 'last_price', None):
+                 raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' not found or has no public data.")
+
+        quote_type = info.get('quoteType', 'EQUITY')
+        is_etf = quote_type == 'ETF'
+        
+        current_p = safe_float(getattr(fast, 'last_price', None)) or safe_float(info.get('currentPrice'))
+        if current_p is None:
+            h = stock.history(period="1d")
+            if not h.empty: current_p = safe_float(h['Close'].iloc[-1])
+        
+        if current_p is None:
+            raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' price data unavailable.")
+
+        # 1. ETF Specific Data: Holdings
+        holdings = []
+        if is_etf:
+            try:
+                raw_holdings = info.get('topHoldings', [])
+                for h in raw_holdings[:10]:
+                    holdings.append({
+                        "symbol": h.get('symbol'),
+                        "name": h.get('holdingName'),
+                        "pct": safe_float(h.get('holdingPercent', 0) * 100)
+                    })
+            except: pass
+
+        # 2. Valuation Logic
+        val_service = ValuationService(ticker)
+        dcf_res = val_service.run_dcf_model()
+        intrinsic = safe_float(dcf_res.get('intrinsic_price')) or current_p
+        status = dcf_res.get('status', 'NEUTRAL')
+        calculation = dcf_res.get('calculation', '')
+        error = dcf_res.get('error')
+        industry_pe = safe_float(dcf_res.get('industry_pe')) or 20.0
+
+        # 3. Dividend & Expense Ratio
+        exp = info.get('netExpenseRatio') or info.get('annualReportExpenseRatio') or info.get('expenseRatio')
+        if exp is None and is_etf:
+            try:
+                fd = stock.funds_data
+                if fd and not fd.fund_operations.empty:
+                    exp = fd.fund_operations.loc['Annual Report Expense Ratio'].iloc[0]
+            except: pass
+        
+        if exp and exp < 0.01: exp *= 100
+        if exp is None: exp = 0.0
+        
+        div_rate = info.get('dividendRate') or info.get('trailingAnnualDividendRate') or 0.0
+        div_yield = info.get('dividendYield') or info.get('trailingAnnualDividendYield') or info.get('yield') or 0.0
+        if 0 < div_yield < 0.2: div_yield *= 100
+        if (not div_rate or div_rate == 0) and div_yield > 0: div_rate = (div_yield / 100) * current_p
+
+        # 4. Performance Data
+        perf = val_service.get_performance_history()
+>>>>>>> feature/new-edit
 
         return json_compatible({
             "ticker": ticker,
@@ -132,6 +195,7 @@ async def analyze_stock(ticker: str):
             "industry": info.get('industry') or "Finance",
             "metrics": {
                 "price": current_p, "intrinsic": intrinsic, "status": status,
+<<<<<<< HEAD
                 "calculation": calculation, "comment": comment, "error": error,
                 "eps": safe_float(info.get('trailingEps')) or 0.0, 
                 "pe": safe_float(info.get('trailingPE')) or 20.0, 
@@ -148,9 +212,27 @@ async def analyze_stock(ticker: str):
             "peers": [], 
             "info": {"name": info.get('longName', ticker), "summary": info.get('longBusinessSummary', "")},
             "news": []
+=======
+                "calculation": calculation, "error": error,
+                "eps": safe_float(info.get('trailingEps')), "pe": safe_float(info.get('trailingPE')), 
+                "mkt_cap": safe_float(info.get('marketCap')),
+                "div_annual": safe_float(div_rate), "div_yield": safe_float(div_yield),
+                "beta": safe_float(info.get('beta')), "expense_ratio": safe_float(exp), "exchange": info.get('exchange')
+            },
+            "holdings": holdings,
+            "averages": {"pe": industry_pe, "eps": 4.2, "div": 1.5, "risk": 1.1, "exp": 0.45, "mkt": 150000000000},
+            "performance": perf,
+            "info": {"name": info.get('longName', ticker), "summary": info.get('longBusinessSummary', '')},
+            "news": stock.news[:3] if stock.news else []
+>>>>>>> feature/new-edit
         })
+    except HTTPException: raise
     except Exception as e:
+<<<<<<< HEAD
         logger.error(f"Error in analyze: {e}")
+=======
+        logger.error(f"Error: {e}")
+>>>>>>> feature/new-edit
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/history/{ticker}")
@@ -159,10 +241,14 @@ async def get_history(ticker: str, period: str = Query("1wk")):
         # Intelligently select interval
         interval = "1d"
         if period == "1d": interval = "1h"
+<<<<<<< HEAD
         elif period == "5d": interval = "1h"
         elif period == "1mo": interval = "1d"
         
         stock = yf.Ticker(ticker.upper())
+=======
+        elif period in ["5d", "1wk"]: interval = "1h"
+>>>>>>> feature/new-edit
         hist = stock.history(period=period, interval=interval).reset_index()
         if hist.empty: return {"data": []}
         
@@ -174,15 +260,28 @@ async def get_history(ticker: str, period: str = Query("1wk")):
 
         # Use 'Date' or 'Datetime' depending on period
         col = 'Date' if 'Date' in hist.columns else 'Datetime'
+<<<<<<< HEAD
+=======
+        
+>>>>>>> feature/new-edit
         if period == "1d":
             hist['date'] = hist[col].dt.strftime('%H:%M')
         else:
             hist['date'] = hist[col].dt.strftime('%m-%d %H:%M')
+<<<<<<< HEAD
         
         return json_compatible({
             "data": hist[['date', 'Close']].rename(columns={'Close': 'price'}).to_dict(orient='records'),
             "zones": {"support": {"low": 0, "high": 0}, "resistance": {"low": 0, "high": 0}},
             "performance": {"is_positive": is_pos, "pct": pct}
+=======
+            
+        start_p, end_p = hist.iloc[0]['Close'], hist.iloc[-1]['Close']
+        return json_compatible({
+            "data": hist[['date', 'Close']].rename(columns={'Close': 'price'}).to_dict(orient='records'),
+            "zones": {"support": {"low": 0, "high": 0}, "resistance": {"low": 0, "high": 0}},
+            "performance": {"is_positive": end_p >= start_p, "pct": round(((end_p - start_p)/start_p)*100, 2)}
+>>>>>>> feature/new-edit
         })
     except: return {"data": []}
 
