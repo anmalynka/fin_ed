@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Search, Activity, History, Info, Loader2, BookOpen, ShieldCheck, ListOrdered } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, LabelList } from 'recharts';
+import { Search, Activity, History, Info, Loader2, BookOpen, ShieldCheck, ListOrdered, ChevronDown } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, LabelList, ReferenceArea } from 'recharts';
 
 import logoImg from './assets/FA_logo.png';
 
@@ -15,6 +15,16 @@ function App() {
   const [period, setPeriod] = useState('5d');
   const [mode, setMode] = useState('perf');
   const [errorMessage, setErrorMessage] = useState('');
+  const [indicators, setIndicators] = useState<string[]>([]);
+  const [showIndicators, setShowIndicators] = useState(false);
+
+  const taOptions = [
+    { label: 'SMA 20', value: 'sma20', color: '#D0BB78' },
+    { label: 'SMA 50', value: 'sma50', color: '#365477' },
+    { label: 'Bollinger Bands', value: 'bollinger', color: '#502068' },
+    { label: 'RSI', value: 'rsi', color: '#99b6d6' },
+    { label: 'MACD', value: 'macd', color: '#1E8257' }
+  ];
 
   const timeframes = [
     { label: '1D', value: '1d' }, { label: '1W', value: '5d' }, { label: '1M', value: '1mo' },
@@ -60,9 +70,10 @@ function App() {
     } finally { setLoading(false); }
   };
 
-  const updateChart = async (symbol: string, time: string) => {
+  const updateChart = async (symbol: string, time: string, selectedInds: string[] = indicators) => {
     try {
-      const res = await axios.get(`${API_BASE}/history/${symbol}?period=${time}`);
+      const indsParam = selectedInds.length > 0 ? `&indicators=${selectedInds.join(',')}` : '';
+      const res = await axios.get(`${API_BASE}/history/${symbol}?period=${time}${indsParam}`);
       if (res.data) {
         setHistory(res.data.data || []);
         setPerfData(res.data.performance);
@@ -70,7 +81,7 @@ function App() {
     } catch (err) { console.error("Chart load failed"); }
   };
 
-  useEffect(() => { if (data?.ticker && mode === 'perf') updateChart(data.ticker, period); }, [period]);
+  useEffect(() => { if (data?.ticker && mode === 'perf') updateChart(data.ticker, period, indicators); }, [period, indicators]);
 
   const formatPrice = (val: number) => typeof val === 'number' ? val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'N/A';
   const formatCompact = (val: number) => typeof val === 'number' ? new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(val) : 'N/A';
@@ -141,19 +152,19 @@ function App() {
         {data && (
           <div className="space-y-6 animate-in fade-in duration-700">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-              <div className={`${data.type === 'ETF' ? 'lg:col-span-4' : 'lg:col-span-3'} bg-white p-8 rounded-m border border-grey-200 shadow-sm flex justify-between items-center relative overflow-hidden`}>
+              <div className={`${data.type === 'ETF' ? 'lg:col-span-4' : 'lg:col-span-3'} bg-white p-6 md:p-8 rounded-m border border-grey-200 shadow-sm flex justify-between items-center relative overflow-hidden gap-4`}>
                 <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl opacity-50 -mr-32 -mt-32"></div>
-                <div className="relative z-10">
-                  <div className="flex gap-2 mb-2">
+                <div className="relative z-10 min-w-0">
+                  <div className="flex flex-wrap gap-2 mb-2">
                     <span className="px-3 py-1 bg-primary/20 text-tertiary border border-tertiary/10 rounded-m text-[10px] font-extrabold uppercase tracking-widest">{data.type}</span>
                     <span className="px-3 py-1 bg-secondary text-grey-300 border border-tertiary/10 rounded-m text-[10px] font-extrabold uppercase tracking-widest">{data.industry}</span>
                   </div>
-                  <h2 className="text-6xl font-extrabold tracking-tighter leading-none text-tertiary">{data.ticker}</h2>
-                  <p className="text-grey-300 font-bold text-lg mt-1 tracking-tight">{data.info?.name}</p>
+                  <h2 className="text-3xl md:text-6xl font-extrabold tracking-tighter leading-none text-tertiary truncate">{data.ticker}</h2>
+                  <p className="text-grey-300 font-bold text-sm md:text-lg mt-1 tracking-tight truncate">{data.info?.name}</p>
                 </div>
-                <div className="text-right relative z-10">
-                  <p className="text-[10px] font-bold text-grey-300 uppercase tracking-widest mb-1 text-right">Live Price</p>
-                  <p className="text-6xl font-mono font-extrabold text-tertiary tracking-tighter">${formatPrice(data.metrics?.price)}</p>
+                <div className="text-right relative z-10 shrink-0">
+                  <p className="text-[10px] font-bold text-grey-300 uppercase tracking-widest mb-1">Live Price</p>
+                  <p className="text-3xl md:text-6xl font-mono font-extrabold text-tertiary tracking-tighter">${formatPrice(data.metrics?.price)}</p>
                 </div>
               </div>
               
@@ -193,18 +204,18 @@ function App() {
             </div>
 
             <div className="flex justify-center">
-               <div className="bg-[#efe9e980] content-stretch flex items-center justify-center p-[4px] relative rounded-m w-[342px] border border-grey-200">
-                  <button onClick={() => setMode('perf')} className={`content-stretch flex flex-1 flex-col items-center justify-center px-4 py-2 relative rounded-m text-[12px] font-bold tracking-widest uppercase transition-all ${mode === 'perf' ? 'bg-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] text-tertiary border border-grey-100' : 'text-blue-400'}`}>Performance</button>
-                  <button onClick={() => setMode('forecast')} className={`content-stretch flex flex-1 flex-col items-center justify-center px-4 py-2 relative rounded-m text-[12px] font-bold tracking-widest uppercase transition-all ${mode === 'forecast' ? 'bg-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] text-tertiary border border-grey-100' : 'text-blue-400'}`}>AI Forecast</button>
+               <div className="bg-[#efe9e980] content-stretch flex items-center justify-center p-[4px] relative rounded-m w-full max-w-[342px] border border-grey-200">
+                  <button onClick={() => setMode('perf')} className={`content-stretch flex flex-1 flex-col items-center justify-center px-4 py-2 relative rounded-m text-[12px] font-bold tracking-widest uppercase transition-all ${mode === 'perf' ? 'bg-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] text-tertiary border border-grey-100' : 'text-grey-400 hover:text-tertiary'}`}>Performance</button>
+                  <button onClick={() => setMode('forecast')} className={`content-stretch flex flex-1 flex-col items-center justify-center px-4 py-2 relative rounded-m text-[12px] font-bold tracking-widest uppercase transition-all ${mode === 'forecast' ? 'bg-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] text-tertiary border border-grey-100' : 'text-grey-400 hover:text-tertiary'}`}>AI Forecast</button>
                </div>
             </div>
 
-            <div className="bg-white p-10 rounded-m border border-grey-200 shadow-sm">
-               <div className="flex flex-col md:flex-row justify-between items-center mb-10 gap-6">
-                  <div className="flex items-center gap-4">
+            <div className="bg-white p-6 md:p-10 rounded-m border border-grey-200 shadow-sm">
+               <div className="flex flex-col lg:flex-row justify-between items-center mb-8 md:mb-10 gap-6">
+                  <div className="flex items-center gap-4 self-start">
                     <div className="p-3 bg-secondary border border-grey-100 rounded-m"><Activity size={24} className="text-tertiary" /></div>
                     <div>
-                      <h3 className="font-extrabold text-2xl tracking-tight uppercase text-tertiary">
+                      <h3 className="font-extrabold text-xl md:text-2xl tracking-tight uppercase text-tertiary">
                         {mode === 'perf' ? 'Performance' : 'AI FINANCIAL FORECAST'}
                       </h3>
                       {perfData && mode === 'perf' && <span className={`text-xs font-extrabold ${perfData.is_positive ? 'text-[#1E8257]' : 'text-[#A45951]'}`}>{perfData.pct}% trend</span>}
@@ -212,13 +223,50 @@ function App() {
                   </div>
 
                   {mode === 'perf' ? (
-                    <div className="flex bg-secondary p-1.5 rounded-m border border-grey-100">
-                      {timeframes.map((tf) => (
-                        <button key={tf.value} onClick={() => setPeriod(tf.value)} className={`px-4 py-1.5 rounded-m text-[10px] font-extrabold uppercase transition-all ${period === tf.value ? 'bg-white border border-grey-200 text-tertiary shadow-[1px_1px_0px_0px_#15191d]' : 'text-grey-300 hover:text-grey-500'}`}>{tf.label}</button>
-                      ))}
+                    <div className="flex flex-wrap justify-end gap-3">
+                      <div className="flex bg-secondary p-1.5 rounded-m border border-grey-100 gap-1">
+                        {timeframes.map((tf) => (
+                          <button key={tf.value} onClick={() => setPeriod(tf.value)} className={`px-3 md:px-4 py-1.5 rounded-m text-[10px] font-extrabold uppercase transition-all ${period === tf.value ? 'bg-white border border-grey-200 text-tertiary shadow-[1px_1px_0px_0px_#15191d]' : 'text-grey-300 hover:text-grey-500'}`}>{tf.label}</button>
+                        ))}
+                      </div>
+
+                      <div className="relative">
+                        <button 
+                          onClick={() => setShowIndicators(!showIndicators)}
+                          className="px-4 h-[43px] bg-white border border-grey-200 rounded-m text-tertiary text-[10px] font-extrabold uppercase shadow-[1px_1px_0px_0px_#15191d] flex items-center gap-2 hover:bg-secondary transition-all"
+                        >
+                          Technical Analysis <ChevronDown size={14} className={`transition-transform ${showIndicators ? 'rotate-180' : ''}`} />
+                        </button>
+                        
+                        {showIndicators && (
+                          <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-grey-200 rounded-m shadow-[4px_4px_0px_0px_#15191d] z-50 overflow-hidden p-2 space-y-1">
+                            {taOptions.map(opt => (
+                              <label 
+                                key={opt.value} 
+                                className="flex items-center gap-3 px-3 py-2 hover:bg-secondary rounded-m cursor-pointer transition-colors group"
+                                style={{ color: indicators.includes(opt.value) ? opt.color : '#404040' }}
+                              >
+                                <input 
+                                  type="checkbox" 
+                                  style={{ accentColor: opt.color }}
+                                  checked={indicators.includes(opt.value)}
+                                  onChange={() => {
+                                    const next = indicators.includes(opt.value) ? indicators.filter(i => i !== opt.value) : [...indicators, opt.value];
+                                    setIndicators(next);
+                                  }}
+                                />
+                                <span className="text-[10px] font-black uppercase">
+                                  {opt.label}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ) : (
-                    <div className="flex gap-6 text-[10px] font-extrabold uppercase tracking-widest text-grey-300">
+
+                    <div className="flex flex-wrap justify-center gap-4 md:gap-6 text-[10px] font-extrabold uppercase tracking-widest text-grey-300">
                       <span className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#52525b]"></div> History</span>
                       <span className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#99b6d6]"></div> AI Hybrid</span>
                       <span className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#0f172a]"></div> Baseline</span>
@@ -226,17 +274,33 @@ function App() {
                   )}
                </div>
                
-               <div className="h-[450px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  {mode === 'perf' ? (
-                    <LineChart data={history}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#efe9e9" />
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#52525b', fontSize: 10, fontWeight: '900'}} minTickGap={30} />
-                      <YAxis orientation="right" axisLine={false} tickLine={false} tick={{fill: '#52525b', fontSize: 10, fontWeight: 'bold'}} domain={['auto', 'auto']} tickFormatter={(v) => `$${v.toFixed(0)}`} />
-                      <Tooltip contentStyle={{borderRadius: '12px', border: '2px solid #0f172a', boxShadow: '4px 4px 0px 0px #0f172a'}} labelClassName="font-extrabold text-grey-300 mb-2" />
-                      <Line type="monotone" dataKey="price" stroke={perfData?.is_positive ? "#1E8257" : "#A45951"} strokeWidth={4} dot={false} animationDuration={1000} />
-                    </LineChart>
-                  ) : (
+               <div className={`${indicators.some(i => ['rsi', 'macd'].includes(i)) ? 'h-[600px]' : 'h-[300px] md:h-[450px]'} w-full space-y-4`}>
+                <div className={indicators.some(i => ['rsi', 'macd'].includes(i)) ? 'h-[60%]' : 'h-full'}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    {mode === 'perf' ? (
+                      <LineChart data={history} margin={{ left: -20, right: 0, top: 10, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#efe9e9" />
+                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#52525b', fontSize: 10, fontWeight: '900'}} minTickGap={30} padding={{ left: 0, right: 0 }} />
+                        <YAxis orientation="right" axisLine={false} tickLine={false} tick={{fill: '#52525b', fontSize: 10, fontWeight: 'bold'}} domain={['auto', 'auto']} tickFormatter={(v) => `$${v.toFixed(0)}`} />
+                        <Tooltip 
+                          contentStyle={{borderRadius: '12px', border: '2px solid #0f172a', boxShadow: '4px 4px 0px 0px #0f172a'}} 
+                          labelClassName="font-extrabold text-grey-300 mb-2"
+                          formatter={(v: any) => [typeof v === 'number' ? v.toFixed(2) : v, '']}
+                        />
+                        <Line type="monotone" dataKey="price" stroke={perfData?.is_positive ? "#1E8257" : "#A45951"} strokeWidth={4} dot={false} animationDuration={1000} />
+                        {/* Overlays with distinct colors */}
+                        {indicators.includes('sma20') && <Line name="SMA 20" type="monotone" dataKey="sma20" stroke="#D0BB78" strokeWidth={2} dot={false} connectNulls />}
+                        {indicators.includes('sma50') && <Line name="SMA 50" type="monotone" dataKey="sma50" stroke="#365477" strokeWidth={2} dot={false} connectNulls />}
+                        {indicators.includes('bollinger') && (
+                          <>
+                            <Line name="BB Upper" type="monotone" dataKey="bb_upper" stroke="#502068" strokeWidth={1} dot={false} connectNulls opacity={0.6} />
+                            <Line name="BB Lower" type="monotone" dataKey="bb_lower" stroke="#502068" strokeWidth={1} dot={false} connectNulls opacity={0.6} />
+                          </>
+                        )}
+
+                      </LineChart>
+
+                    ) : (
                     <LineChart data={forecastData}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#efe9e9" />
                       <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#52525b', fontSize: 10, fontWeight: 'bold'}} minTickGap={60} />
@@ -248,6 +312,43 @@ function App() {
                     </LineChart>
                   )}
                 </ResponsiveContainer>
+                </div>
+
+                {/* RSI Sub-Chart */}
+                {mode === 'perf' && indicators.includes('rsi') && (
+                  <div className="h-[15%] w-full border-t border-grey-100 pt-2">
+                    <p className="text-[8px] font-black uppercase text-grey-300 mb-1">Relative Strength Index (14)</p>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={history} margin={{ left: -20, right: 0, top: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#efe9e9" />
+                        <XAxis dataKey="date" hide />
+                        <YAxis domain={[0, 100]} orientation="right" tick={{fontSize: 8}} ticks={[30, 70]} />
+                        <Line type="monotone" dataKey="rsi" stroke="#99b6d6" strokeWidth={2} dot={false} />
+                        <ReferenceArea y1={70} y2={100} fill="#A45951" fillOpacity={0.1} />
+                        <ReferenceArea y1={0} y2={30} fill="#1E8257" fillOpacity={0.1} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* MACD Sub-Chart */}
+                {mode === 'perf' && indicators.includes('macd') && (
+                  <div className="h-[20%] w-full border-t border-grey-100 pt-2">
+                    <p className="text-[8px] font-black uppercase text-grey-300 mb-1">MACD (12, 26, 9)</p>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={history} margin={{ left: -20, right: 0, top: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#efe9e9" />
+                        <XAxis dataKey="date" hide />
+                        <YAxis orientation="right" tick={{fontSize: 8}} />
+                        <Bar dataKey="macd_hist" radius={[2, 2, 0, 0]}>
+                          {history.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={(entry?.macd_hist ?? 0) >= 0 ? "#1E8257" : "#A45951"} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
                </div>
             </div>
 
@@ -273,24 +374,26 @@ function App() {
 
                <div className="bg-white p-8 rounded-m border border-grey-200 shadow-sm flex flex-col justify-between">
                   <h3 className="font-extrabold text-sm uppercase tracking-widest text-tertiary mb-6 flex items-center gap-2"><BookOpen size={18} className="text-[#1E8257]" /> Digital Library</h3>
-                  <div className="grid grid-cols-2 gap-4 h-full">
-                     <a href={`https://www.sec.gov/edgar/search/#/q=${data.ticker}&forms=10-K,10-Q`} target="_blank" rel="noreferrer" className="p-8 bg-primary border-2 border-tertiary rounded-m flex flex-col justify-center text-center shadow-[4px_4px_0px_0px_#15191d] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] group transition-all">
-                        <p className="text-[10px] font-extrabold text-tertiary uppercase mb-1 opacity-70">Institutional</p>
-                        <p className="font-extrabold text-xl group-hover:underline text-tertiary uppercase">SEC Filings</p>
+                  <div className="grid grid-cols-2 gap-4 mb-6">
+                     <a href={`https://www.sec.gov/edgar/search/#/q=${data.ticker}&forms=10-K,10-Q`} target="_blank" rel="noreferrer" className="p-6 bg-primary border-2 border-tertiary rounded-m flex flex-col justify-center text-center shadow-[2px_2px_0px_0px_#15191d] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px] group transition-all">
+                        <p className="text-[10px] font-extrabold text-tertiary uppercase mb-1 opacity-70 leading-none">SEC</p>
+                        <p className="font-extrabold text-lg group-hover:underline text-tertiary uppercase leading-none">Filings</p>
                      </a>
-                     <a href={`https://finance.yahoo.com/quote/${data.ticker}/financials`} target="_blank" rel="noreferrer" className="p-8 bg-primary border-2 border-tertiary rounded-m flex flex-col justify-center text-center shadow-[4px_4px_0px_0px_#15191d] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] group transition-all">
-                        <p className="text-[10px] font-extrabold text-tertiary uppercase mb-1 opacity-70">Shareholder</p>
-                        <p className="font-extrabold text-xl group-hover:underline text-tertiary uppercase">Report</p>
+                     <a href={`https://finance.yahoo.com/quote/${data.ticker}/financials`} target="_blank" rel="noreferrer" className="p-6 bg-primary border-2 border-tertiary rounded-m flex flex-col justify-center text-center shadow-[2px_2px_0px_0px_#15191d] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px] group transition-all">
+                        <p className="text-[10px] font-extrabold text-tertiary uppercase mb-1 opacity-70 leading-none">Annual</p>
+                        <p className="font-extrabold text-lg group-hover:underline text-tertiary uppercase leading-none">Report</p>
                      </a>
-                     <div className="col-span-2 p-6 bg-[#efe9e9] rounded-m border border-grey-200 flex items-center gap-4 shadow-sm">
-                        <div className="p-3 bg-white border border-tertiary rounded-m shadow-[1px_1px_0px_0px_#15191d] text-tertiary"><ShieldCheck size={20}/></div>
-                        <div>
-                          <p className="text-[10px] font-extrabold text-tertiary uppercase mb-1 italic">Market Insight</p>
-                          <p className="font-bold text-xs leading-tight text-tertiary line-clamp-2 italic">"{data.news?.[0]?.title}"</p>
-                        </div>
-                     </div>
-                </div>
-              </div>
+                  </div>
+                  <div className="flex-1 space-y-3 overflow-y-auto max-h-[200px] pr-2 custom-scrollbar">
+                    <p className="text-[10px] font-black text-tertiary uppercase tracking-widest mb-2 flex items-center gap-2 italic"><ShieldCheck size={14} className="text-[#1E8257]"/> Latest Market News</p>
+                    {data.news?.map((n: any, i: number) => (
+                      <a key={i} href={n.link} target="_blank" rel="noreferrer" className="block p-3 bg-secondary hover:bg-primary/10 border border-grey-100 rounded-m transition-all group">
+                        <p className="text-[8px] font-black text-primary uppercase mb-1">{n.publisher}</p>
+                        <p className="text-[11px] font-bold text-tertiary leading-snug group-hover:text-[#1E8257] line-clamp-2 uppercase italic">"{n.title}"</p>
+                      </a>
+                    ))}
+                  </div>
+               </div>
             </div>
 
             <div className="bg-[rgba(80,136,199,0.2)] border border-[#131416] p-10 rounded-m text-tertiary shadow-[4px_4px_0px_0px_#131416] relative overflow-hidden">

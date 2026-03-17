@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from services.forecaster import ForecastEngine
 from services.valuation import ValuationService
+from services.technical_analysis import TechnicalAnalysisService
 
 # CRITICAL: Path fix for services import
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -63,6 +64,48 @@ def safe_float(value, decimals=2):
         if value is None or pd.isna(value) or np.isinf(value): return None
         return round(float(value), decimals)
     except: return None
+
+import asyncio
+import xml.etree.ElementTree as ET
+import urllib.request
+import ssl
+from datetime import datetime, timedelta
+
+def get_stock_news(ticker, company_name):
+    """Fetch latest news using Google News RSS feed for better reliability."""
+    try:
+        # Create unverified context to bypass SSL issues on some local machines
+        context = ssl._create_unverified_context()
+        
+        # Search query: "Company Name" AND "Ticker"
+        query = f"{company_name} {ticker} stock"
+        url = f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}&hl=en-US&gl=US&ceid=US:en"
+        
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        req = urllib.request.Request(url, headers=headers)
+        
+        with urllib.request.urlopen(req, context=context) as response:
+            xml_data = response.read()
+            
+        root = ET.fromstring(xml_data)
+        news_items = []
+        
+        for item in root.findall('.//item')[:5]:
+            title = item.find('title').text if item.find('title') is not None else "No Title"
+            link = item.find('link').text if item.find('link') is not None else "#"
+            source_el = item.find('source')
+            publisher = source_el.text if source_el is not None else "Market News"
+            
+            news_items.append({
+                "title": title,
+                "link": link,
+                "publisher": publisher,
+                "time": item.find('pubDate').text if item.find('pubDate') is not None else ""
+            })
+        return news_items
+    except Exception as e:
+        logger.error(f"News RSS fetch error: {e}")
+        return []
 
 @app.get("/api/health")
 @app.get("/health")
@@ -135,6 +178,20 @@ async def analyze_stock(ticker: str):
         # Performance Data
         perf = val_service.get_performance_history()
 
+        # News Data: Prioritize Google News RSS for reliability
+        comp_name = info.get('longName', ticker)
+        news_items = get_stock_news(ticker, comp_name)
+        
+        # Fallback to yfinance news if RSS failed
+        if not news_items:
+            raw_y_news = stock.news or []
+            news_items = [{
+                "title": n.get('title', 'No Title'),
+                "link": n.get('link', '#'),
+                "publisher": n.get('publisher', 'Market News'),
+                "time": n.get('providerPublishTime', '')
+            } for n in raw_y_news[:5]]
+
         return json_compatible({
             "ticker": ticker,
             "type": quote_type,
@@ -150,8 +207,8 @@ async def analyze_stock(ticker: str):
             "holdings": holdings,
             "averages": {"pe": industry_pe, "eps": 4.2, "div": 1.5, "risk": 1.1, "exp": 0.45, "mkt": 150000000000},
             "performance": perf,
-            "info": {"name": info.get('longName', ticker), "summary": info.get('longBusinessSummary', '')},
-            "news": stock.news[:3] if stock.news else []
+            "info": {"name": comp_name, "summary": info.get('longBusinessSummary', '')},
+            "news": news_items
         })
     except HTTPException: raise
     except Exception as e:
@@ -159,16 +216,38 @@ async def analyze_stock(ticker: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/history/{ticker}")
-async def get_history(ticker: str, period: str = Query("1wk")):
+async def get_history(ticker: str, period: str = Query("1wk"), indicators: str = Query(None)):
     try:
         stock = yf.Ticker(ticker.upper())
         interval = "1d"
         if period == "1d": interval = "1h"
         elif period in ["5d", "1wk"]: interval = "1h"
         
-        hist = stock.history(period=period, interval=interval).reset_index()
+        # Determine fetch period: If indicators are requested, we need more history for calculation
+        # e.g., for SMA50, we need at least 50 previous days.
+        fetch_period = period
+        if indicators and period != "5y":
+            if period in ["1d", "5d", "1wk", "1mo", "3mo", "ytd", "1y"]:
+                fetch_period = "2y" # Fetch 2 years to be safe for all windows
+
+        hist = stock.history(period=fetch_period, interval=interval).reset_index()
         if hist.empty: return {"data": []}
         
+        # Apply Technical Indicators
+        if indicators:
+            ta_service = TechnicalAnalysisService(ticker)
+            indicator_list = indicators.split(',')
+            hist = ta_service.calculate_indicators(hist, indicator_list)
+            
+            # Slice back to the requested period
+            # yfinance doesn't give us a clean way to fetch '2y' and then 'slice to ytd' easily without date math
+            # but we can approximate by taking the last N rows that would have been in the original period
+            # A better way is to fetch the original period first to see its start date
+            orig_hist = stock.history(period=period, interval=interval)
+            if not orig_hist.empty:
+                start_date = orig_hist.index[0]
+                hist = hist[hist['Date' if 'Date' in hist.columns else 'Datetime'] >= start_date]
+
         col = 'Date' if 'Date' in hist.columns else 'Datetime'
         if period == "1d":
             hist['date'] = hist[col].dt.strftime('%H:%M')
@@ -176,12 +255,21 @@ async def get_history(ticker: str, period: str = Query("1wk")):
             hist['date'] = hist[col].dt.strftime('%m-%d %H:%M')
             
         start_p, end_p = hist.iloc[0]['Close'], hist.iloc[-1]['Close']
+        
+        # Data columns to return
+        return_cols = ['date', 'Close']
+        if indicators:
+            for ind in ['sma20', 'sma50', 'bb_upper', 'bb_lower', 'rsi', 'macd', 'macd_signal', 'macd_hist']:
+                if ind in hist.columns: return_cols.append(ind)
+
         return json_compatible({
-            "data": hist[['date', 'Close']].rename(columns={'Close': 'price'}).to_dict(orient='records'),
+            "data": hist[return_cols].rename(columns={'Close': 'price'}).to_dict(orient='records'),
             "zones": {"support": {"low": 0, "high": 0}, "resistance": {"low": 0, "high": 0}},
             "performance": {"is_positive": end_p >= start_p, "pct": round(((end_p - start_p)/start_p)*100, 2)}
         })
-    except: return {"data": []}
+    except Exception as e:
+        logger.error(f"History error: {e}")
+        return {"data": []}
 
 @app.get("/api/forecast/{ticker}")
 async def get_forecast(ticker: str):
