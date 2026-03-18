@@ -1,9 +1,24 @@
 import os
 import sys
+import logging
+import asyncio
+import httpx
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
+import urllib.parse
+
+# CRITICAL: Path fix for services import
+# This must be at the very top before any local imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, ".."))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import logging
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -11,12 +26,6 @@ from fastapi.responses import FileResponse
 from services.forecaster import ForecastEngine
 from services.valuation import ValuationService
 from services.technical_analysis import TechnicalAnalysisService
-
-# CRITICAL: Path fix for services import
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.abspath(os.path.join(current_dir, ".."))
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
@@ -65,42 +74,40 @@ def safe_float(value, decimals=2):
         return round(float(value), decimals)
     except: return None
 
-import asyncio
-import xml.etree.ElementTree as ET
-import urllib.request
-import ssl
-from datetime import datetime, timedelta
-
-def get_stock_news(ticker, company_name):
-    """Fetch latest news using Google News RSS feed for better reliability."""
+async def get_stock_news(ticker, company_name):
+    """Fetch latest news using Google News RSS feed asynchronously."""
     try:
-        # Create unverified context to bypass SSL issues on some local machines
-        context = ssl._create_unverified_context()
-        
-        # Search query: "Company Name" AND "Ticker"
         query = f"{company_name} {ticker} stock"
         url = f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}&hl=en-US&gl=US&ceid=US:en"
         
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        req = urllib.request.Request(url, headers=headers)
-        
-        with urllib.request.urlopen(req, context=context) as response:
-            xml_data = response.read()
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+            if response.status_code != 200:
+                return []
+            xml_data = response.text
             
         root = ET.fromstring(xml_data)
         news_items = []
         
-        for item in root.findall('.//item')[:5]:
+        for item in root.findall('.//item')[:6]:
             title = item.find('title').text if item.find('title') is not None else "No Title"
             link = item.find('link').text if item.find('link') is not None else "#"
+            
+            # Google RSS often includes publisher in the title: "Title - Publisher"
+            # And also has a <source> tag
             source_el = item.find('source')
             publisher = source_el.text if source_el is not None else "Market News"
+            
+            if " - " in title and publisher in title:
+                title = title.rsplit(" - ", 1)[0]
+
+            pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ""
             
             news_items.append({
                 "title": title,
                 "link": link,
                 "publisher": publisher,
-                "time": item.find('pubDate').text if item.find('pubDate') is not None else ""
+                "time": pub_date
             })
         return news_items
     except Exception as e:
@@ -117,7 +124,16 @@ async def analyze_stock(ticker: str):
     ticker = ticker.upper().strip()
     try:
         stock = yf.Ticker(ticker)
-        info = stock.info or {}
+        
+        # Parallelize data fetching to reduce latency
+        # 1. info and fast_info are blocking calls
+        # 2. Valuation calculation can also be blocking
+        # 3. News fetch is now async
+        
+        loop = asyncio.get_event_loop()
+        
+        # Fetch basic info first (essential for other calls)
+        info = await loop.run_in_executor(None, lambda: stock.info or {})
         fast = stock.fast_info
         
         # Rigorous check for ticker existence
@@ -127,10 +143,23 @@ async def analyze_stock(ticker: str):
 
         quote_type = info.get('quoteType', 'EQUITY')
         is_etf = quote_type == 'ETF'
+        comp_name = info.get('longName', ticker)
+
+        # Run multiple heavy operations in parallel
+        val_service = ValuationService(ticker)
         
+        tasks = [
+            loop.run_in_executor(None, val_service.run_dcf_model),
+            loop.run_in_executor(None, val_service.get_performance_history),
+            get_stock_news(ticker, comp_name)
+        ]
+        
+        # Add ETF specific or dividend specific tasks if needed
+        dcf_res, perf, news_items = await asyncio.gather(*tasks)
+
         current_p = safe_float(getattr(fast, 'last_price', None)) or safe_float(info.get('currentPrice'))
         if current_p is None:
-            h = stock.history(period="1d")
+            h = await loop.run_in_executor(None, lambda: stock.history(period="1d"))
             if not h.empty: current_p = safe_float(h['Close'].iloc[-1])
         
         if current_p is None:
@@ -149,9 +178,7 @@ async def analyze_stock(ticker: str):
                     })
             except: pass
 
-        # Valuation Logic
-        val_service = ValuationService(ticker)
-        dcf_res = val_service.run_dcf_model()
+        # Valuation Results
         intrinsic = safe_float(dcf_res.get('intrinsic_price')) or current_p
         status = dcf_res.get('status', 'NEUTRAL')
         calculation = dcf_res.get('calculation', '')
@@ -162,7 +189,8 @@ async def analyze_stock(ticker: str):
         exp = info.get('netExpenseRatio') or info.get('annualReportExpenseRatio') or info.get('expenseRatio')
         if exp is None and is_etf:
             try:
-                fd = stock.funds_data
+                # funds_data can be slow, but we only do it if necessary
+                fd = await loop.run_in_executor(None, lambda: stock.funds_data)
                 if fd and not fd.fund_operations.empty:
                     exp = fd.fund_operations.loc['Annual Report Expense Ratio'].iloc[0]
             except: pass
@@ -175,22 +203,20 @@ async def analyze_stock(ticker: str):
         if 0 < div_yield < 0.2: div_yield *= 100
         if (not div_rate or div_rate == 0) and div_yield > 0: div_rate = (div_yield / 100) * current_p
 
-        # Performance Data
-        perf = val_service.get_performance_history()
-
-        # News Data: Prioritize Google News RSS for reliability
-        comp_name = info.get('longName', ticker)
-        news_items = get_stock_news(ticker, comp_name)
-        
-        # Fallback to yfinance news if RSS failed
+        # Fallback news if Google fails
         if not news_items:
-            raw_y_news = stock.news or []
-            news_items = [{
-                "title": n.get('title', 'No Title'),
-                "link": n.get('link', '#'),
-                "publisher": n.get('publisher', 'Market News'),
-                "time": n.get('providerPublishTime', '')
-            } for n in raw_y_news[:5]]
+            try:
+                raw_y_news = await loop.run_in_executor(None, lambda: stock.news or [])
+                news_items = [{
+                    "title": n.get('title', 'No Title'),
+                    "link": n.get('link', '#'),
+                    "publisher": n.get('publisher', 'Market News'),
+                    "time": n.get('providerPublishTime', '')
+                } for n in raw_y_news[:5]]
+            except: pass
+            
+        if not news_items:
+            news_items = [{"title": f"Latest updates for {ticker}", "link": f"https://finance.yahoo.com/quote/{ticker}/news", "publisher": "Yahoo Finance", "time": ""}]
 
         return json_compatible({
             "ticker": ticker,
@@ -224,26 +250,24 @@ async def get_history(ticker: str, period: str = Query("1wk"), indicators: str =
         elif period in ["5d", "1wk"]: interval = "1h"
         
         # Determine fetch period: If indicators are requested, we need more history for calculation
-        # e.g., for SMA50, we need at least 50 previous days.
         fetch_period = period
         if indicators and period != "5y":
             if period in ["1d", "5d", "1wk", "1mo", "3mo", "ytd", "1y"]:
                 fetch_period = "2y" # Fetch 2 years to be safe for all windows
 
-        hist = stock.history(period=fetch_period, interval=interval).reset_index()
+        loop = asyncio.get_event_loop()
+        hist = await loop.run_in_executor(None, lambda: stock.history(period=fetch_period, interval=interval).reset_index())
+        
         if hist.empty: return {"data": []}
         
         # Apply Technical Indicators
         if indicators:
             ta_service = TechnicalAnalysisService(ticker)
             indicator_list = indicators.split(',')
-            hist = ta_service.calculate_indicators(hist, indicator_list)
+            hist = await loop.run_in_executor(None, ta_service.calculate_indicators, hist, indicator_list)
             
             # Slice back to the requested period
-            # yfinance doesn't give us a clean way to fetch '2y' and then 'slice to ytd' easily without date math
-            # but we can approximate by taking the last N rows that would have been in the original period
-            # A better way is to fetch the original period first to see its start date
-            orig_hist = stock.history(period=period, interval=interval)
+            orig_hist = await loop.run_in_executor(None, lambda: stock.history(period=period, interval=interval))
             if not orig_hist.empty:
                 start_date = orig_hist.index[0]
                 hist = hist[hist['Date' if 'Date' in hist.columns else 'Datetime'] >= start_date]
@@ -275,7 +299,9 @@ async def get_history(ticker: str, period: str = Query("1wk"), indicators: str =
 async def get_forecast(ticker: str):
     try:
         engine = ForecastEngine(ticker.upper())
-        return json_compatible(engine.run_forecast())
+        loop = asyncio.get_event_loop()
+        res = await loop.run_in_executor(None, engine.run_forecast)
+        return json_compatible(res)
     except: return {}
 
 # Serving UI

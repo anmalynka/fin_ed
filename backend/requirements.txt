@@ -5,6 +5,7 @@ pandas
 numpy
 python-dotenv
 requests
+httpx
 lxml
 beautifulsoup4
 pytest
