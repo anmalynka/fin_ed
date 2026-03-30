@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, 
-  LineChart, Line, ReferenceLine, ReferenceArea
+  LineChart, Line, ReferenceLine
 } from 'recharts';
 
 interface AssetBucket {
