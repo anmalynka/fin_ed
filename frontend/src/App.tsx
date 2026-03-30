@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Search, Activity, History, Info, Loader2, BookOpen, ShieldCheck, ListOrdered, ChevronDown, Menu, X, Flame } from 'lucide-react';
+import { Search, Activity, History, Info, Loader2, BookOpen, ShieldCheck, ListOrdered, ChevronDown, Menu, X } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, LabelList, ReferenceArea } from 'recharts';
 
 import logoImg from './assets/FA_logo.png';

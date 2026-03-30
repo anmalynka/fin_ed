@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
-  Plus, Download, Trash2, PieChart, TrendingUp, DollarSign, 
-  Loader2, AlertCircle, FileJson, Table as TableIcon, ExternalLink, RefreshCw, X, ShieldCheck, ChevronDown
+  Trash2, PieChart, TrendingUp, DollarSign, 
+  Loader2, AlertCircle, ExternalLink, X, ShieldCheck, ChevronDown
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -52,8 +52,8 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
   const [validatedData, setValidatedData] = useState<any>(null);
   
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [, setLoading] = useState(false);
+  const [, setError] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Chart States

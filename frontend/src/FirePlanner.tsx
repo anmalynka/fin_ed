@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
-  Flame, Target, TrendingUp, DollarSign, Loader2, AlertCircle, Info, 
-  Plus, Trash2, RotateCcw, Play, X, Briefcase
+  Flame, Target, TrendingUp, Loader2, Info, 
+  Plus, Trash2, RotateCcw, Play, Briefcase
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, 
-  LineChart, Line, ReferenceLine
+  LineChart, Line, ReferenceLine, ReferenceArea
 } from 'recharts';
 
 interface AssetBucket {
@@ -20,9 +20,11 @@ interface Scenario {
   fire_number_real: number;
   reached_fire_age: number | null;
   on_track: boolean;
+  is_depleted: boolean;
   extra_monthly_needed: number;
   accumulation_history: any[];
   runway_history: any[];
+  full_history: any[];
   depletion_age: number;
   portfolio_at_retire_real: number;
 }
@@ -39,6 +41,7 @@ interface FireResults {
 const DEFAULT_INPUTS = {
   current_age: 28,
   target_retire_age: 45,
+  plan_until_age: 90,
   current_portfolio: 100000,
   target_monthly_spend: 2500,
   swr: 4.0,
@@ -59,6 +62,12 @@ const DEFAULT_INPUTS = {
 const formatPrice = (val: number | undefined) => 
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val || 0);
 
+const formatYAxis = (v: number) => {
+  if (v >= 900000) return `$${(v/1000000).toFixed(1)}M`;
+  if (v <= -900000) return `-$${(Math.abs(v)/1000000).toFixed(1)}M`;
+  return `$${(v/1000).toFixed(0)}k`;
+};
+
 const InputField = ({ label, name, value, onChange, type = "number", step = "1" }: any) => (
   <div className="space-y-1.5">
     <label className="text-[9px] font-black uppercase text-grey-400 ml-1 tracking-widest">{label}</label>
@@ -73,32 +82,38 @@ const InputField = ({ label, name, value, onChange, type = "number", step = "1" 
   </div>
 );
 
-const formatYAxis = (v: number) => {
-  if (v >= 900000) return `$${(v/1000000).toFixed(1)}M`;
-  return `$${(v/1000).toFixed(0)}k`;
-};
-
 const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [inputs, setInputs] = useState(DEFAULT_INPUTS);
   const [results, setResults] = useState<FireResults | null>(null);
   const [loading, setLoading] = useState(false);
   const [activeType, setActiveType] = useState<'Lean' | 'Standard' | 'Fat'>('Standard');
 
+  const [error, setError] = useState<string | null>(null);
+
   const fetchSimulation = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await axios.post(`${apiBase}/fire/simulate`, inputs);
-      setResults(res.data);
+      if (res.data && res.data.scenarios) {
+        setResults(res.data);
+      } else {
+        throw new Error("Invalid response from server");
+      }
     } catch (err) {
-      console.error("FIRE simulation failed");
+      console.error("FIRE simulation failed", err);
+      setError("Failed to calculate FIRE plan. Please ensure the backend is running.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchSimulation();
-  }, []);
+    const timer = setTimeout(() => {
+      fetchSimulation();
+    }, 500); // Debounce
+    return () => clearTimeout(timer);
+  }, [inputs]);
 
   const handleReset = () => setInputs(DEFAULT_INPUTS);
 
@@ -174,7 +189,10 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
               )}
             </div>
             
-            <InputField label="Target Monthly Spend ($)" name="target_monthly_spend" value={inputs.target_monthly_spend} onChange={handleChange} step="100" />
+            <div className="grid grid-cols-2 gap-4">
+              <InputField label="Target Monthly Spend ($)" name="target_monthly_spend" value={inputs.target_monthly_spend} onChange={handleChange} step="100" />
+              <InputField label="Plan Until Age" name="plan_until_age" value={inputs.plan_until_age} onChange={handleChange} />
+            </div>
             
             <div className="space-y-1.5">
               <label className="text-[9px] font-black uppercase text-grey-400 ml-1 tracking-widest">Withdrawal Rate (%)</label>
@@ -251,6 +269,12 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
 
       {/* RIGHT: Results */}
       <div className="lg:col-span-8 space-y-6">
+        {error && (
+          <div className="bg-red-50 border-2 border-red-200 p-4 rounded-m flex items-center gap-3 text-red-700 font-bold uppercase text-[10px]">
+            <Info size={16} /> {error}
+          </div>
+        )}
+
         {/* Scenario Selection Tabs */}
         <div className="flex bg-white rounded-m border-2 border-tertiary p-1 shadow-[2px_2px_0px_0px_#15191d]">
           {['Lean', 'Standard', 'Fat'].map((type) => (
@@ -280,11 +304,17 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
               <p className="text-[10px] font-bold mt-2 uppercase italic">Est. Return: {results?.annual_return_used}%</p>
             </div>
             <div className="flex flex-col justify-center">
-              <div className={`px-4 py-3 border-2 rounded-m text-center relative group ${activeScenario?.on_track || inputs.simulation_mode === 'Reverse' ? 'border-primary bg-primary/10' : 'border-red-400 bg-red-400/10'}`}>
-                <p className="text-[10px] font-black uppercase tracking-widest mb-1">On Track? {activeScenario?.on_track ? 'Yes' : 'No'}</p>
-                <p className="text-xl font-black">{inputs.simulation_mode === 'Direct' ? (activeScenario?.reached_fire_age ? `Age ${activeScenario.reached_fire_age}` : 'Never') : `Until Age ${activeScenario?.depletion_age}`}</p>
-                
-                {inputs.simulation_mode === 'Direct' && !activeScenario?.on_track && activeScenario?.extra_monthly_needed && (
+              <div className="px-4 py-3 border-2 border-primary bg-primary/10 rounded-m text-center relative group">
+                <p className="text-[10px] font-black uppercase tracking-widest mb-1">
+                  {inputs.simulation_mode === 'Direct' ? 'FIRE Target' : 'Portfolio Lasts'}
+                </p>
+                <p className="text-xl font-black">
+                  {inputs.simulation_mode === 'Direct' 
+                    ? (activeScenario?.reached_fire_age ? `Age ${activeScenario.reached_fire_age}` : 'Never') 
+                    : `Until Age ${activeScenario?.depletion_age}`}
+                </p>
+
+                {inputs.simulation_mode === 'Direct' && activeScenario?.reached_fire_age && activeScenario.reached_fire_age > inputs.target_retire_age && activeScenario.extra_monthly_needed && (
                   <div className="absolute -top-2 -right-2">
                     <div className="relative">
                       <div className="p-1 bg-red-400 text-white rounded-full cursor-help group-hover:bg-red-500"><Info size={12} /></div>
@@ -295,8 +325,7 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                   </div>
                 )}
               </div>
-            </div>
-          </div>
+            </div>          </div>
         </div>
 
         {/* Charts */}
@@ -309,7 +338,7 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                 </h3>
                 <div className="flex gap-4 text-[9px] font-black uppercase">
                   <span className="flex items-center gap-1.5"><div className="w-2 h-2 bg-tertiary"></div> Principal</span>
-                  <span className="flex items-center gap-1.5"><div className="w-2 h-2 bg-primary"></div> Compound</span>
+                  <span className="flex items-center gap-1.5"><div className="w-2 h-2 bg-[#D0BB78]"></div> Compound</span>
                 </div>
               </div>
               <div className="h-[350px] w-full">
@@ -319,14 +348,14 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                     <XAxis 
                       dataKey="age" 
                       type="number" 
-                      domain={[inputs.current_age, 'auto']} 
+                      domain={[inputs.current_age, inputs.target_retire_age]} 
                       allowDataOverflow={true}
                       axisLine={false} 
                       tickLine={false} 
                       tick={{fill: '#52525b', fontSize: 10, fontWeight: 'bold'}} 
                       tickFormatter={(v) => Math.floor(v).toString()} 
                     />
-                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#52525b', fontSize: 10, fontWeight: 'bold'}} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
+                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#52525b', fontSize: 10, fontWeight: 'bold'}} tickFormatter={formatYAxis} />
                     <RechartsTooltip contentStyle={{borderRadius: '8px', border: '2px solid #0f172a', boxShadow: '4px 4px 0px 0px #0f172a'}} formatter={(v: any) => [formatPrice(v), '']} labelFormatter={(label) => `Age: ${label}`} />
                     <Area type="monotone" dataKey="real_principal" stackId="1" stroke="#0f172a" fill="#0f172a" fillOpacity={0.8} />
                     <Area type="monotone" dataKey="real_interest" stackId="1" stroke="#D0BB78" fill="#D0BB78" fillOpacity={0.8} />
@@ -340,19 +369,28 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           <div className="bg-white p-8 rounded-m border-2 border-tertiary shadow-[4px_4px_0px_0px_#15191d]">
             <div className="flex justify-between items-center mb-8">
               <h3 className="font-black text-sm uppercase tracking-widest text-tertiary flex items-center gap-2">
-                <Briefcase size={18} className="text-primary" /> Retirement Burn Rate
+                <Briefcase size={18} className="text-primary" /> Retirement Runway (Withdrawal)
               </h3>
               <div className="text-right">
                 <p className="text-[9px] font-black text-grey-300 uppercase">Depletion Age</p>
-                <p className="text-lg font-black text-primary">Age {activeScenario?.depletion_age || '100+'}</p>
+                <p className="text-lg font-black text-primary">Age {activeScenario?.depletion_age || inputs.plan_until_age}</p>
               </div>
             </div>
             <div className="h-[300px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={activeScenario?.runway_history || []}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#efe9e9" />
-                  <XAxis dataKey="age" type="number" domain={['dataMin', 'dataMax']} axisLine={false} tickLine={false} tick={{fill: '#52525b', fontSize: 10, fontWeight: 'bold'}} tickFormatter={(v) => Math.floor(v).toString()} />
-                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#52525b', fontSize: 10, fontWeight: 'bold'}} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
+                  <XAxis 
+                    dataKey="age" 
+                    type="number" 
+                    domain={[inputs.simulation_mode === 'Direct' ? inputs.target_retire_age : inputs.current_age, Math.max(inputs.plan_until_age, activeScenario?.depletion_age || 0)]} 
+                    allowDataOverflow={true}
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{fill: '#52525b', fontSize: 10, fontWeight: 'bold'}} 
+                    tickFormatter={(v) => Math.floor(v).toString()} 
+                  />
+                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#52525b', fontSize: 10, fontWeight: 'bold'}} tickFormatter={formatYAxis} />
                   <RechartsTooltip contentStyle={{borderRadius: '8px', border: '2px solid #0f172a', boxShadow: '4px 4px 0px 0px #0f172a'}} formatter={(v: any) => [formatPrice(v), 'Portfolio']} labelFormatter={(label) => `Age: ${label}`} />
                   <Line type="monotone" dataKey="real_portfolio" stroke="#A45951" strokeWidth={4} dot={false} />
                   <ReferenceLine y={0} stroke="#0f172a" strokeWidth={2} />
@@ -362,10 +400,11 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
             <div className="mt-6 flex items-center gap-4 p-4 bg-secondary rounded-m border-2 border-dashed border-grey-200">
               <Info className="text-tertiary shrink-0" size={24} />
               <p className="text-[11px] font-bold text-tertiary leading-relaxed uppercase italic">
-                Sustainable until Age {activeScenario?.depletion_age}. {activeScenario?.depletion_age && activeScenario.depletion_age > 110 ? "Congratulations, your withdrawal rate is lower than your real growth!" : "At this point, spending outpaces portfolio growth."}
+                {activeScenario?.is_depleted 
+                  ? `Sustainable until Age ${activeScenario.depletion_age}. At this point, spending outpaces growth.`
+                  : `Portfolio remains positive through Age ${inputs.plan_until_age}. Your plan covers your full horizon!`}
               </p>
-            </div>
-          </div>
+            </div>          </div>
         </div>
       </div>
     </div>

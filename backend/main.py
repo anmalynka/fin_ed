@@ -330,6 +330,9 @@ async def analyze_stock(ticker: str):
             "holdings": holdings, "performance": perf, "info": {"name": comp_name, "summary": info.get('longBusinessSummary', '')}, "news": news_items
         })
     except Exception as e:
+        err_msg = str(e).lower()
+        if "too many requests" in err_msg or "429" in err_msg:
+            raise HTTPException(status_code=429, detail="Yahoo Finance rate limit reached. Please wait a moment before trying again.")
         logger.error(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -354,7 +357,12 @@ async def get_history(ticker: str, period: str = Query("1wk"), indicators: str =
             "data": hist.rename(columns={'Close': 'price'}).to_dict(orient='records'),
             "performance": {"is_positive": hist.iloc[-1]['Close'] >= hist.iloc[0]['Close'], "pct": round(((hist.iloc[-1]['Close'] - hist.iloc[0]['Close'])/hist.iloc[0]['Close'])*100, 2)}
         })
-    except: return {"data": []}
+    except Exception as e:
+        err_msg = str(e).lower()
+        if "too many requests" in err_msg or "429" in err_msg:
+            raise HTTPException(status_code=429, detail="Yahoo Finance rate limit reached. Please wait a moment before trying again.")
+        logger.error(f"Error in {ticker}: {e}")
+        return {"data": [], "error": str(e)}
 
 @app.get("/api/forecast/{ticker}")
 async def get_forecast(ticker: str):
@@ -362,7 +370,11 @@ async def get_forecast(ticker: str):
         engine = ForecastEngine(ticker.upper())
         res = await asyncio.get_event_loop().run_in_executor(None, engine.run_forecast)
         return json_compatible(res)
-    except: return {}
+    except Exception as e:
+        err_msg = str(e).lower()
+        if "too many requests" in err_msg or "429" in err_msg:
+            raise HTTPException(status_code=429, detail="Yahoo Finance rate limit reached. Please wait a moment before trying again.")
+        return {}
 
 @app.post("/api/portfolio/history")
 async def get_portfolio_history(
@@ -431,6 +443,7 @@ async def get_portfolio_history(
 @app.post("/api/fire/simulate")
 async def simulate_fire(inputs: FIREInput):
     try:
+        logger.info(f"Simulating FIRE with inputs: {inputs.dict()}")
         engine = FIREEngine(inputs)
         res = engine.run_simulation()
         return json_compatible(res)
