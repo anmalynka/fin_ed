@@ -111,27 +111,39 @@ class ValuationService:
 
     def get_performance_history(self):
         try:
+            # Fetch 5 years of daily data to cover all timeframes
             hist = self.ticker.history(period="5y")
             if hist.empty:
-                return {"1M": 0, "YTD": 0, "1Y": 0, "3Y": 0, "5Y": 0}
+                return {
+                    "1D": 0, "3D": 0, "1W": 0, "1M": 0, "3M": 0, 
+                    "6M": 0, "YTD": 0, "1Y": 0, "5Y": 0
+                }
 
             def calc_return(df, days):
                 if len(df) < 2: return 0.0
-                start_val = df['Close'].iloc[-min(days, len(df))]
+                # Days is trading days approx
+                idx = min(days, len(df))
+                start_val = df['Close'].iloc[-idx]
                 end_val = df['Close'].iloc[-1]
+                if start_val == 0: return 0.0
                 return round(((end_val - start_val) / start_val) * 100, 2)
 
             try:
                 ytd_start = pd.Timestamp(datetime.now().year, 1, 1).tz_localize(hist.index.tz)
                 ytd_df = hist[hist.index >= ytd_start]
                 ytd_return = 0.0
-                if not ytd_df.empty:
+                if not ytd_df.empty and ytd_df['Close'].iloc[0] != 0:
                     ytd_return = round(((ytd_df['Close'].iloc[-1] - ytd_df['Close'].iloc[0]) / ytd_df['Close'].iloc[0]) * 100, 2)
             except:
                 ytd_return = 0.0
 
             return {
+                "1D": calc_return(hist, 2), # current vs previous day
+                "3D": calc_return(hist, 4),
+                "1W": calc_return(hist, 5),
                 "1M": calc_return(hist, 21),
+                "3M": calc_return(hist, 63),
+                "6M": calc_return(hist, 126),
                 "YTD": ytd_return,
                 "1Y": calc_return(hist, 252),
                 "3Y": calc_return(hist, 756),
@@ -139,4 +151,13 @@ class ValuationService:
             }
         except Exception as e:
             logger.error(f"Error calculating performance history: {e}")
-            return {"1M": 0, "YTD": 0, "1Y": 0, "3Y": 0, "5Y": 0}
+            return {
+                "1D": 0, "3D": 0, "1W": 0, "1M": 0, "3M": 0, 
+                "6M": 0, "YTD": 0, "1Y": 0, "5Y": 0
+            }
+
+    def get_sector_info(self):
+        return {
+            "sector": self.info.get('sector', 'Other'),
+            "industry": self.info.get('industry', 'Other')
+        }
