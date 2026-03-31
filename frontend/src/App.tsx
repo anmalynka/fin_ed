@@ -248,7 +248,7 @@ function App() {
                   
                   {data.type !== 'ETF' && (
                     <div className={`p-8 rounded-m border-2 border-tertiary flex flex-col justify-center text-center shadow-[6px_6px_0px_0px_#15191d] transition-all duration-500 ${
-                      data.metrics?.intrinsic > data.metrics?.price ? 'bg-[#1E8257] text-white' : 'bg-[#A45951] text-white'
+                      (data.metrics?.intrinsic ?? 0) > (data.metrics?.price ?? 0) ? 'bg-[#1E8257] text-white' : 'bg-[#A45951] text-white'
                     }`}>
 
                        <p className="text-[11px] font-extrabold uppercase tracking-widest opacity-70 mb-1">Blended Target Price</p>
@@ -256,13 +256,13 @@ function App() {
                          <p className="text-xl font-extrabold px-4 leading-tight py-2 uppercase italic">{data.metrics.error}</p>
                        ) : (
                          <>
-                          <p className="text-5xl font-mono font-black tracking-tighter text-white">${formatPrice(data.metrics?.intrinsic)}</p>
+                          <p className="text-5xl font-mono font-black tracking-tighter text-white">${formatPrice(data.metrics?.intrinsic ?? 0)}</p>
                           
                           <div className="mt-4">
                               <div className="bg-white/10 p-3 rounded-m text-[10px] font-extrabold leading-relaxed uppercase text-white border border-white/20">
-                                  {data.metrics?.intrinsic > data.metrics?.price ? 
-                                    `Undervalued by ${Math.abs(((data.metrics?.intrinsic - data.metrics?.price)/data.metrics?.price)*100).toFixed(1)}%` : 
-                                    `Overvalued by ${Math.abs(((data.metrics?.intrinsic - data.metrics?.price)/data.metrics?.price)*100).toFixed(1)}%`
+                                  {(data.metrics?.intrinsic ?? 0) > (data.metrics?.price ?? 0) ? 
+                                    `Undervalued by ${Math.abs((((data.metrics?.intrinsic ?? 0) - (data.metrics?.price ?? 0))/(data.metrics?.price ?? 1))*100).toFixed(1)}%` : 
+                                    `Overvalued by ${Math.abs((((data.metrics?.intrinsic ?? 0) - (data.metrics?.price ?? 0))/(data.metrics?.price ?? 1))*100).toFixed(1)}%`
                                   }
                               </div>
                           </div>

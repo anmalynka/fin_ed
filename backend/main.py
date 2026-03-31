@@ -453,20 +453,46 @@ async def simulate_fire(inputs: FIREInput):
 
 # UI Serving
 def find_frontend_dist():
-    # Possible paths for frontend/dist
+    # 1. Start with the most logical path based on the file location
+    # current_dir is /backend, project_root is /
     search_paths = [
         os.path.join(project_root, "frontend", "dist"),
         os.path.join(current_dir, "..", "frontend", "dist"),
         "/opt/render/project/src/frontend/dist",
         os.path.abspath("./frontend/dist"),
-        os.path.abspath("../frontend/dist")
+        os.path.abspath("./dist"),
     ]
+    
+    # 2. Add some dynamic discovery
+    try:
+        # Check current working directory and its parents
+        cwd = os.getcwd()
+        logger.info(f"Current working directory: {cwd}")
+        search_paths.append(os.path.join(cwd, "frontend", "dist"))
+        search_paths.append(os.path.join(cwd, "dist"))
+    except:
+        pass
+
+    # 3. List directories in project root for debugging
+    try:
+        logger.info(f"Listing directories in project root ({project_root}): {os.listdir(project_root)}")
+        if os.path.exists(os.path.join(project_root, "frontend")):
+             logger.info(f"Listing directories in frontend folder: {os.listdir(os.path.join(project_root, 'frontend'))}")
+    except Exception as e:
+        logger.warning(f"Could not list directories: {e}")
+
     for p in search_paths:
-        logger.info(f"Checking for frontend dist at: {p}")
-        if os.path.exists(p) and os.path.isdir(p):
-            logger.info(f"Found frontend dist at: {p}")
-            return os.path.abspath(p)
-    logger.warning("Frontend dist directory not found!")
+        abs_p = os.path.abspath(p)
+        logger.info(f"Checking for frontend dist at: {abs_p}")
+        if os.path.exists(abs_p) and os.path.isdir(abs_p):
+            # Verify it contains index.html
+            if os.path.exists(os.path.join(abs_p, "index.html")):
+                logger.info(f"Found frontend dist with index.html at: {abs_p}")
+                return abs_p
+            else:
+                logger.warning(f"Found dist folder but no index.html at: {abs_p}")
+    
+    logger.error("CRITICAL: Frontend dist directory (with index.html) not found in any search path!")
     return None
 
 frontend_dist = find_frontend_dist()
