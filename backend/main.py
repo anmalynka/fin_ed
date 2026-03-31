@@ -478,24 +478,7 @@ if frontend_dist:
         app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
         logger.info(f"Mounted /assets from {assets_dir}")
 
-    @app.get("/{rest_of_path:path}")
-    async def serve_ui(rest_of_path: str):
-        # Allow API and Health routes to fall through to their handlers
-        if rest_of_path.startswith("api/") or rest_of_path.startswith("health"):
-            raise HTTPException(status_code=404)
-        
-        # Check if the requested file exists in dist
-        file_path = os.path.join(frontend_dist, rest_of_path)
-        if rest_of_path and os.path.isfile(file_path):
-            return FileResponse(file_path)
-        
-        # Fallback to index.html for SPA routing
-        index_path = os.path.join(frontend_dist, "index.html")
-        if os.path.exists(index_path):
-            return FileResponse(index_path)
-        
-        raise HTTPException(status_code=404, detail="Index not found")
-
+    # Root serves the index.html
 @app.get("/")
 async def root():
     if frontend_dist:
@@ -503,6 +486,27 @@ async def root():
         if os.path.exists(index_path):
             return FileResponse(index_path)
     return {"status": "ok", "frontend_found": frontend_dist is not None}
+
+# Catch-all for SPA (must be defined LAST)
+if frontend_dist:
+    @app.get("/{rest_of_path:path}")
+    async def serve_ui(rest_of_path: str):
+        # Allow /api and /health to fall through by returning 404 here
+        # so FastAPI continues to search for other matches if this was reached by mistake.
+        # But since we define it last, it should only catch non-API routes.
+        if rest_of_path.startswith("api") or rest_of_path.startswith("health"):
+             raise HTTPException(status_code=404)
+        
+        full_path = os.path.join(frontend_dist, rest_of_path)
+        if os.path.isfile(full_path):
+            return FileResponse(full_path)
+        
+        # SPA fallback
+        index_path = os.path.join(frontend_dist, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        
+        raise HTTPException(status_code=404)
 
 if __name__ == "__main__":
     import uvicorn
