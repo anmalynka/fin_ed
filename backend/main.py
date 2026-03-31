@@ -453,23 +453,56 @@ async def simulate_fire(inputs: FIREInput):
 
 # UI Serving
 def find_frontend_dist():
-    for p in [os.path.join(project_root, "frontend", "dist"), os.path.join(current_dir, "..", "frontend", "dist"), "/opt/render/project/src/frontend/dist"]:
-        if os.path.exists(p): return os.path.abspath(p)
+    # Possible paths for frontend/dist
+    search_paths = [
+        os.path.join(project_root, "frontend", "dist"),
+        os.path.join(current_dir, "..", "frontend", "dist"),
+        "/opt/render/project/src/frontend/dist",
+        os.path.abspath("./frontend/dist"),
+        os.path.abspath("../frontend/dist")
+    ]
+    for p in search_paths:
+        logger.info(f"Checking for frontend dist at: {p}")
+        if os.path.exists(p) and os.path.isdir(p):
+            logger.info(f"Found frontend dist at: {p}")
+            return os.path.abspath(p)
+    logger.warning("Frontend dist directory not found!")
     return None
 
 frontend_dist = find_frontend_dist()
+
 if frontend_dist:
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
+    # Mount assets first so they take precedence
+    assets_dir = os.path.join(frontend_dist, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+        logger.info(f"Mounted /assets from {assets_dir}")
+
     @app.get("/{rest_of_path:path}")
     async def serve_ui(rest_of_path: str):
-        if rest_of_path.startswith("api/") or rest_of_path.startswith("health"): raise HTTPException(status_code=404)
-        full_path = os.path.join(frontend_dist, rest_of_path)
-        return FileResponse(full_path if os.path.isfile(full_path) else os.path.join(frontend_dist, "index.html"))
+        # Allow API and Health routes to fall through to their handlers
+        if rest_of_path.startswith("api/") or rest_of_path.startswith("health"):
+            raise HTTPException(status_code=404)
+        
+        # Check if the requested file exists in dist
+        file_path = os.path.join(frontend_dist, rest_of_path)
+        if rest_of_path and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        
+        # Fallback to index.html for SPA routing
+        index_path = os.path.join(frontend_dist, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        
+        raise HTTPException(status_code=404, detail="Index not found")
 
 @app.get("/")
 async def root():
-    if frontend_dist: return FileResponse(os.path.join(frontend_dist, "index.html"))
-    return {"status": "ok"}
+    if frontend_dist:
+        index_path = os.path.join(frontend_dist, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+    return {"status": "ok", "frontend_found": frontend_dist is not None}
 
 if __name__ == "__main__":
     import uvicorn
