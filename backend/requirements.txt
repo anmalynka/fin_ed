@@ -2,6 +2,7 @@ fastapi
 uvicorn
 yfinance>=0.2.40
 aiofiles
+curl_cffi
 pandas
 numpy
 python-dotenv

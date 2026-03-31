@@ -20,22 +20,11 @@ if project_root not in sys.path:
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import requests
 from fastapi import FastAPI, HTTPException, Query, Body
 
-# Configure a robust session for yfinance to avoid 429s
-session = requests.Session()
-session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Cache-Control': 'no-cache',
-    'Pragma': 'no-cache',
-})
-
-# In-memory cache for stock data (5 minute TTL)
+# In-memory cache for stock data (10 minute TTL)
 stock_cache = {}
-CACHE_TTL = timedelta(minutes=5)
+CACHE_TTL = timedelta(minutes=10)
 
 def get_cached_data(key):
     if key in stock_cache:
@@ -47,9 +36,8 @@ def get_cached_data(key):
 def set_cached_data(key, data):
     stock_cache[key] = (data, datetime.now() + CACHE_TTL)
 
-# Set global session for yfinance
+# Set global session for yfinance cache
 yf.set_tz_cache_location("cache")
-# Use the session for all yfinance calls if possible (some methods don't support it directly but we'll use it where we can)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -321,7 +309,7 @@ async def analyze_stock(ticker: str):
         return cached
 
     try:
-        stock = yf.Ticker(ticker, session=session)
+        stock = yf.Ticker(ticker)
         loop = asyncio.get_event_loop()
         info = await loop.run_in_executor(None, lambda: stock.info or {})
         fast = stock.fast_info
@@ -376,8 +364,14 @@ async def analyze_stock(ticker: str):
 
 @app.get("/api/history/{ticker}")
 async def get_history(ticker: str, period: str = Query("1wk"), indicators: str = Query(None)):
+    ticker = ticker.upper().strip()
+    cache_key = f"history_{ticker}_{period}_{indicators}"
+    cached = get_cached_data(cache_key)
+    if cached:
+        return cached
+
     try:
-        stock = yf.Ticker(ticker.upper())
+        stock = yf.Ticker(ticker)
         interval = "1h" if period in ["1d", "5d", "1wk"] else "1d"
         fetch_period = "2y" if indicators and period != "5y" else period
         loop = asyncio.get_event_loop()
@@ -391,27 +385,40 @@ async def get_history(ticker: str, period: str = Query("1wk"), indicators: str =
                 hist = hist[hist['Date' if 'Date' in hist.columns else 'Datetime'] >= orig_hist.index[0]]
         col = 'Date' if 'Date' in hist.columns else 'Datetime'
         hist['date'] = hist[col].dt.strftime('%H:%M' if period == "1d" else '%m-%d %H:%M')
-        return json_compatible({
+        result = json_compatible({
             "data": hist.rename(columns={'Close': 'price'}).to_dict(orient='records'),
             "performance": {"is_positive": hist.iloc[-1]['Close'] >= hist.iloc[0]['Close'], "pct": round(((hist.iloc[-1]['Close'] - hist.iloc[0]['Close'])/hist.iloc[0]['Close'])*100, 2)}
         })
+        set_cached_data(cache_key, result)
+        return result
     except Exception as e:
         err_msg = str(e).lower()
         if "too many requests" in err_msg or "429" in err_msg:
             raise HTTPException(status_code=429, detail="Yahoo Finance rate limit reached. Please wait a moment before trying again.")
-        logger.error(f"Error in {ticker}: {e}")
+        logger.error(f"Error in get_history {ticker}: {e}")
         return {"data": [], "error": str(e)}
 
 @app.get("/api/forecast/{ticker}")
 async def get_forecast(ticker: str):
+    ticker = ticker.upper().strip()
+    cache_key = f"forecast_{ticker}"
+    cached = get_cached_data(cache_key)
+    if cached:
+        return cached
+
     try:
-        engine = ForecastEngine(ticker.upper())
+        engine = ForecastEngine(ticker)
         res = await asyncio.get_event_loop().run_in_executor(None, engine.run_forecast)
-        return json_compatible(res)
+        if res is None:
+            return {}
+        result = json_compatible(res)
+        set_cached_data(cache_key, result)
+        return result
     except Exception as e:
         err_msg = str(e).lower()
         if "too many requests" in err_msg or "429" in err_msg:
             raise HTTPException(status_code=429, detail="Yahoo Finance rate limit reached. Please wait a moment before trying again.")
+        logger.error(f"Error in get_forecast {ticker}: {e}")
         return {}
 
 @app.post("/api/portfolio/history")
