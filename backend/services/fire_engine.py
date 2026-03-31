@@ -57,12 +57,9 @@ class FIREEngine:
         # Dynamic Goal calculation: 
         # The goal is the portfolio value needed at retirement age 
         # to survive until plan_until_age with inflation.
-        # This is a present value of an annuity problem with growing payments.
         plan_months = (self.inputs.plan_until_age - self.inputs.target_retire_age) * 12
-        # Use target_months (accumulation duration) to find future inflated spend at start of retirement
         accumulation_months = (self.inputs.target_retire_age - self.inputs.current_age) * 12
         
-        # Rule of thumb goal (for comparison/legacy)
         swr_decimal = max(0.001, self.inputs.swr) / 100
         fire_number_today = (target_monthly_spend * 12) / swr_decimal
         
@@ -111,9 +108,7 @@ class FIREEngine:
         # 2. Withdrawal Phase
         burn_portfolio = portfolio_at_retire
         start_age = self.inputs.target_retire_age
-        withdrawal_history = []
         
-        # Add withdrawal phase until death_age (default 90) or depletion
         withdrawal_months = (self.inputs.plan_until_age - self.inputs.target_retire_age) * 12
         for month in range(1, withdrawal_months + 1):
             total_months_from_now = month + accumulation_months
@@ -132,7 +127,6 @@ class FIREEngine:
                 "phase": "withdrawal"
             }
             combined_history.append(record)
-            withdrawal_history.append(record)
             if burn_portfolio <= 0: break
 
         return {
@@ -145,42 +139,6 @@ class FIREEngine:
             "depletion_age": combined_history[-1]["age"] if len(combined_history) > 1 else start_age,
             "is_depleted": burn_portfolio <= 0,
             "on_track": (reached_fire_age is not None) and (reached_fire_age <= self.inputs.target_retire_age)
-        }
-
-    def run_simulation(self):
-        scenarios = {}
-        target_monthly_spend = self.inputs.target_monthly_spend
-        
-        types = [("Lean", 0.7), ("Standard", 1.0), ("Fat", 1.5)]
-        for name, mult in types:
-            spend = target_monthly_spend * mult
-            if self.inputs.simulation_mode == "Reverse":
-                sim = self._run_reverse_sim(spend)
-            else:
-                sim = self._run_single_sim(spend)
-                
-                # Extra monthly needed
-                if not sim["on_track"]:
-                    low = self.inputs.monthly_deposit
-                    high = self.inputs.monthly_deposit + 20000
-                    for _ in range(15):
-                        mid = (low + high) / 2
-                        test_sim = self._run_single_sim(spend, mid)
-                        if test_sim["on_track"]: high = mid
-                        else: low = mid
-                    sim["extra_monthly_needed"] = round(high - self.inputs.monthly_deposit, 0)
-                else:
-                    sim["extra_monthly_needed"] = 0
-            
-            # Subsample for UI performance (yearly points)
-            sim["accumulation_history"] = sim["accumulation_history"][::12]
-            sim["runway_history"] = sim["runway_history"][::12]
-            sim["full_history"] = sim["full_history"][::12]
-            scenarios[name] = sim
-
-        return {
-            "scenarios": scenarios,
-            "annual_return_used": round(self._get_annual_return(), 2)
         }
 
     def _run_reverse_sim(self, target_monthly_spend):
@@ -198,7 +156,7 @@ class FIREEngine:
         start_age = self.inputs.current_age
         
         history.append({
-            "month": 0, "age": float(start_age), "real_portfolio": round(portfolio, 2)
+            "month": 0, "age": float(start_age), "real_portfolio": round(portfolio, 2), "phase": "withdrawal"
         })
 
         for month in range(1, 12 * 100):
@@ -212,7 +170,7 @@ class FIREEngine:
             real_burn_portfolio = burn_portfolio / ((1 + monthly_inflation) ** month)
             history.append({
                 "month": month, "age": age,
-                "real_portfolio": round(real_burn_portfolio, 2)
+                "real_portfolio": round(real_burn_portfolio, 2), "phase": "withdrawal"
             })
             if burn_portfolio <= 0: break
             if age >= 100: break
@@ -220,6 +178,7 @@ class FIREEngine:
         return {
             "accumulation_history": [],
             "runway_history": history,
+            "full_history": history,
             "reached_fire_age": None,
             "fire_number_real": (target_monthly_spend * 12) / (self.inputs.swr / 100),
             "portfolio_at_retire_real": round(portfolio, 2),
@@ -253,8 +212,10 @@ class FIREEngine:
                 else:
                     sim["extra_monthly_needed"] = 0
             
+            # Subsample for UI performance (yearly points)
             sim["accumulation_history"] = sim["accumulation_history"][::12]
             sim["runway_history"] = sim["runway_history"][::12]
+            sim["full_history"] = sim.get("full_history", [])[::12]
             scenarios[name] = sim
 
         return {

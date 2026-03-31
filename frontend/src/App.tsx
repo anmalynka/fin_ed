@@ -261,8 +261,8 @@ function App() {
                           <div className="mt-4">
                               <div className="bg-white/10 p-3 rounded-m text-[10px] font-extrabold leading-relaxed uppercase text-white border border-white/20">
                                   {data.metrics?.intrinsic > data.metrics?.price ? 
-                                    `Undervalued by ${Math.abs(((data.metrics.intrinsic - data.metrics.price)/data.metrics.price)*100).toFixed(1)}%` : 
-                                    `Overvalued by ${Math.abs(((data.metrics.intrinsic - data.metrics.price)/data.metrics.price)*100).toFixed(1)}%`
+                                    `Undervalued by ${Math.abs(((data.metrics?.intrinsic - data.metrics?.price)/data.metrics?.price)*100).toFixed(1)}%` : 
+                                    `Overvalued by ${Math.abs(((data.metrics?.intrinsic - data.metrics?.price)/data.metrics?.price)*100).toFixed(1)}%`
                                   }
                               </div>
                           </div>
