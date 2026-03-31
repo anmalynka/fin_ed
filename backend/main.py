@@ -20,7 +20,36 @@ if project_root not in sys.path:
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import requests
 from fastapi import FastAPI, HTTPException, Query, Body
+
+# Configure a robust session for yfinance to avoid 429s
+session = requests.Session()
+session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+})
+
+# In-memory cache for stock data (5 minute TTL)
+stock_cache = {}
+CACHE_TTL = timedelta(minutes=5)
+
+def get_cached_data(key):
+    if key in stock_cache:
+        data, expiry = stock_cache[key]
+        if datetime.now() < expiry:
+            return data
+    return None
+
+def set_cached_data(key, data):
+    stock_cache[key] = (data, datetime.now() + CACHE_TTL)
+
+# Set global session for yfinance
+yf.set_tz_cache_location("cache")
+# Use the session for all yfinance calls if possible (some methods don't support it directly but we'll use it where we can)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -285,8 +314,14 @@ async def health_check():
 @app.get("/api/analyze/{ticker}")
 async def analyze_stock(ticker: str):
     ticker = ticker.upper().strip()
+    
+    # Try cache first
+    cached = get_cached_data(f"analyze_{ticker}")
+    if cached:
+        return cached
+
     try:
-        stock = yf.Ticker(ticker)
+        stock = yf.Ticker(ticker, session=session)
         loop = asyncio.get_event_loop()
         info = await loop.run_in_executor(None, lambda: stock.info or {})
         fast = stock.fast_info
@@ -318,7 +353,7 @@ async def analyze_stock(ticker: str):
         div_rate = info.get('dividendRate') or info.get('trailingAnnualDividendRate') or 0.0
         div_yield = info.get('dividendYield') or info.get('trailingAnnualDividendYield') or 0.0
         if 0 < div_yield < 0.2: div_yield *= 100
-        return json_compatible({
+        result = json_compatible({
             "ticker": ticker, "type": quote_type, "industry": info.get('industry', 'ETF'),
             "metrics": {
                 "price": current_p, "intrinsic": safe_float(dcf_res.get('intrinsic_price')) or current_p,
@@ -329,11 +364,14 @@ async def analyze_stock(ticker: str):
             },
             "holdings": holdings, "performance": perf, "info": {"name": comp_name, "summary": info.get('longBusinessSummary', '')}, "news": news_items
         })
+        
+        set_cached_data(f"analyze_{ticker}", result)
+        return result
     except Exception as e:
         err_msg = str(e).lower()
         if "too many requests" in err_msg or "429" in err_msg:
             raise HTTPException(status_code=429, detail="Yahoo Finance rate limit reached. Please wait a moment before trying again.")
-        logger.error(f"Error: {e}")
+        logger.error(f"Error in analyze_stock: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/history/{ticker}")
@@ -453,46 +491,35 @@ async def simulate_fire(inputs: FIREInput):
 
 # UI Serving
 def find_frontend_dist():
-    # 1. Start with the most logical path based on the file location
-    # current_dir is /backend, project_root is /
+    # 1. Start with the most logical path for Render (project root)
+    cwd = os.getcwd()
+    # If the app is started from /opt/render/project/src/, the dist folder is there.
     search_paths = [
+        os.path.join(cwd, "dist"),
+        os.path.join(project_root, "dist"),
         os.path.join(project_root, "frontend", "dist"),
-        os.path.join(current_dir, "..", "frontend", "dist"),
-        "/opt/render/project/src/frontend/dist",
-        os.path.abspath("./frontend/dist"),
         os.path.abspath("./dist"),
     ]
     
-    # 2. Add some dynamic discovery
+    logger.info(f"STARTING SEARCH: {cwd}")
+    
+    # Debug listing
     try:
-        # Check current working directory and its parents
-        cwd = os.getcwd()
-        logger.info(f"Current working directory: {cwd}")
-        search_paths.append(os.path.join(cwd, "frontend", "dist"))
-        search_paths.append(os.path.join(cwd, "dist"))
+        logger.info(f"Listing directories in CWD ({cwd}): {os.listdir(cwd)}")
     except:
         pass
 
-    # 3. List directories in project root for debugging
-    try:
-        logger.info(f"Listing directories in project root ({project_root}): {os.listdir(project_root)}")
-        if os.path.exists(os.path.join(project_root, "frontend")):
-             logger.info(f"Listing directories in frontend folder: {os.listdir(os.path.join(project_root, 'frontend'))}")
-    except Exception as e:
-        logger.warning(f"Could not list directories: {e}")
-
     for p in search_paths:
         abs_p = os.path.abspath(p)
-        logger.info(f"Checking for frontend dist at: {abs_p}")
+        logger.info(f"PROBING: {abs_p}")
         if os.path.exists(abs_p) and os.path.isdir(abs_p):
-            # Verify it contains index.html
             if os.path.exists(os.path.join(abs_p, "index.html")):
-                logger.info(f"Found frontend dist with index.html at: {abs_p}")
+                logger.info(f"SUCCESS: Found dist at {abs_p}")
                 return abs_p
             else:
-                logger.warning(f"Found dist folder but no index.html at: {abs_p}")
+                logger.warning(f"PARTIAL: Found folder but no index.html at {abs_p}")
     
-    logger.error("CRITICAL: Frontend dist directory (with index.html) not found in any search path!")
+    logger.error("FAILURE: No frontend dist folder with index.html found. The UI will not work!")
     return None
 
 frontend_dist = find_frontend_dist()
@@ -507,11 +534,28 @@ if frontend_dist:
     # Root serves the index.html
 @app.get("/")
 async def root():
+    debug_info = {
+        "cwd": os.getcwd(),
+        "project_root": project_root,
+        "current_dir": current_dir,
+        "frontend_found": frontend_dist is not None,
+        "root_contents": [],
+        "frontend_contents": []
+    }
+    
+    try:
+        debug_info["root_contents"] = os.listdir(".")
+        if os.path.exists("frontend"):
+            debug_info["frontend_contents"] = os.listdir("frontend")
+    except:
+        pass
+
     if frontend_dist:
         index_path = os.path.join(frontend_dist, "index.html")
         if os.path.exists(index_path):
             return FileResponse(index_path)
-    return {"status": "ok", "frontend_found": frontend_dist is not None}
+            
+    return {"status": "debug", "info": debug_info}
 
 # Catch-all for SPA (must be defined LAST)
 if frontend_dist:
