@@ -52,9 +52,6 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
   const [validatedData, setValidatedData] = useState<any>(null);
   
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [showLongLoading, setShowLongLoading] = useState(false);
-  const [, setError] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Chart States
@@ -122,17 +119,13 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
   }, [newPos.ticker]);
 
   const fetchAnalysis = async () => {
-    setLoading(true);
-    setError('');
     try {
       const res = await axios.post(`${apiBase}/positions/analyze`, positions);
       if (res.data) {
         setAnalysis(res.data);
       }
     } catch (err: any) {
-      setError('Connection error or invalid data.');
-    } finally {
-      setLoading(false);
+      console.error('Portfolio analysis failed', err);
     }
   };
 
