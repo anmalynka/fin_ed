@@ -52,7 +52,8 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
   const [validatedData, setValidatedData] = useState<any>(null);
   
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [showLongLoading, setShowLongLoading] = useState(false);
   const [, setError] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -391,8 +392,8 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
               <div className="flex items-center gap-4 self-start">
                 <div className="p-3 bg-secondary border border-grey-100 rounded-m"><TrendingUp size={24} className="text-tertiary" /></div>
                 <div>
-                  <h3 className="font-extrabold text-xl md:text-2xl tracking-tight uppercase text-tertiary">Portfolio Performance</h3>
-                  {perfData && <span className={`text-xs font-extrabold ${perfData.is_positive ? 'text-[#1E8257]' : 'text-[#A45951]'}`}>{perfData.pct}% trend</span>}
+                  <h3 className="font-black text-[10px] uppercase tracking-widest text-grey-300">Portfolio Performance</h3>
+                  {perfData && <span className={`text-[10px] font-extrabold ${perfData.is_positive ? 'text-[#1E8257]' : 'text-[#A45951]'}`}>{perfData.pct}% trend</span>}
                 </div>
               </div>
 
@@ -508,7 +509,7 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
            
            <div className="bg-white p-8 rounded-m border border-grey-200 shadow-sm">
               <div className="flex justify-between items-center mb-8">
-                <h3 className="font-extrabold text-sm uppercase tracking-widest text-tertiary flex items-center gap-2"><DollarSign size={18} className="text-[#1E8257]" /> Annual Dividends</h3>
+                <h3 className="font-black text-[10px] uppercase tracking-widest text-grey-300 flex items-center gap-2"><DollarSign size={18} className="text-[#1E8257]" /> Annual Dividends</h3>
                 <div className="text-right">
                   <p className="text-[8px] font-black text-grey-300 uppercase">Est. Annual Total</p>
                   <p className="text-lg font-black text-[#1E8257]">${formatPrice(analysis?.portfolio.total_div)}</p>
@@ -528,7 +529,7 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
            </div>
 
            <div className="bg-white p-8 rounded-m border border-grey-200 shadow-sm">
-              <h3 className="font-extrabold text-sm uppercase tracking-widest text-tertiary mb-8 flex items-center gap-2"><PieChart size={18} className="text-[#1E8257]" /> Sector Allocation</h3>
+              <h3 className="font-black text-[10px] uppercase tracking-widest text-grey-300 mb-8 flex items-center gap-2"><PieChart size={18} className="text-[#1E8257]" /> Sector Allocation</h3>
               <div className="h-[300px] w-full">
                 <RespCont width="100%" height="100%">
                   <Treemap data={analysis?.portfolio.sector_distribution} dataKey="value" aspectRatio={4 / 3} stroke="#fff" fill="#8884d8" content={<CustomTreemapContent />} />

@@ -99,7 +99,7 @@ function App() {
 
   const HealthCard = ({ label, value, avg }: { label: string, value: string, avg: any }) => (
     <div className="bg-white p-5 rounded-m border border-grey-200 shadow-sm flex flex-col justify-center h-full transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none">
-      <p className="text-[10px] font-bold text-grey-300 uppercase tracking-widest mb-1">{label}</p>
+      <p className="text-[10px] font-black text-grey-300 uppercase tracking-widest mb-1">{label}</p>
       <p className="text-xl font-extrabold text-grey-900 leading-none">{value}</p>
       <div className="mt-3 pt-3 border-t border-grey-100">
         <p className="text-[9px] font-bold text-grey-300 uppercase tracking-tighter italic">Industry Avg: {typeof avg === 'number' ? avg.toFixed(2) : (avg || 'N/A')}</p>
@@ -177,7 +177,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-secondary text-grey-500 p-6 font-sans">
-      <nav className="max-w-7xl mx-auto mb-10 pb-6 border-b-2 border-grey-100">
+      <nav className="max-w-7xl mx-auto mb-10 pb-6 border-b-2 border-grey-100 min-h-[160px] md:min-h-[120px] flex flex-col justify-end">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="flex items-center justify-between w-full md:w-auto">
             <div className="flex items-center gap-8 h-full">
@@ -206,23 +206,39 @@ function App() {
           </div>
 
           {/* Search bar - Only visible on Find page */}
-          {currentPage === 'find' && (
-            <div className="w-full md:max-w-md lg:max-w-lg animate-in fade-in slide-in-from-right-4 duration-500">
-              <form onSubmit={handleSearch} className="relative group">
-                <input 
-                  type="text" 
-                  placeholder="Search Ticker (e.g. AAPL, BTC-USD)..." 
-                  className="w-full pl-12 pr-4 py-3 bg-white border-2 border-tertiary rounded-m focus:ring-4 focus:ring-primary/20 outline-none transition-all font-black text-sm text-tertiary placeholder:text-grey-200 shadow-[3px_3px_0px_0px_#15191d]" 
-                  value={ticker} 
-                  onChange={(e) => setTicker(e.target.value.toUpperCase())} 
-                />
-                <div className="absolute left-4 top-1/2 -translate-y-1/2">
-                  {loading ? <Loader2 className="text-primary animate-spin w-4 h-4" /> : <Search className="text-tertiary w-4 h-4" strokeWidth={3} />}
+          <div className={`w-full md:max-w-md lg:max-w-lg transition-all duration-500 ${currentPage === 'find' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+              <form onSubmit={handleSearch} className="relative group flex items-stretch">
+                <div className="relative flex-grow">
+                  <input 
+                    type="text" 
+                    placeholder="Search Ticker (e.g. AAPL, BTC-USD)..." 
+                    className="w-full pl-12 pr-12 py-4 bg-white border-2 border-tertiary rounded-l-m focus:ring-4 focus:ring-primary/20 outline-none transition-all font-black text-sm text-tertiary placeholder:text-grey-200 shadow-[3px_3px_0px_0px_#15191d]" 
+                    value={ticker} 
+                    onChange={(e) => setTicker(e.target.value.toUpperCase())} 
+                  />
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2">
+                    {loading ? <Loader2 className="text-primary animate-spin w-4 h-4" /> : <Search className="text-tertiary w-4 h-4" strokeWidth={3} />}
+                  </div>
+                  
+                  {ticker && (
+                    <button 
+                      type="button" 
+                      onClick={() => setTicker('')}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-grey-300 hover:text-tertiary p-1"
+                    >
+                      <X size={16} strokeWidth={3} />
+                    </button>
+                  )}
                 </div>
-                <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 bg-tertiary text-white rounded-m text-[8px] font-black uppercase hover:bg-tertiary/90 hidden sm:block">Analyze</button>
+
+                <button 
+                  type="submit" 
+                  className="px-6 bg-tertiary text-white rounded-r-m border-2 border-l-0 border-tertiary hover:bg-tertiary/90 transition-all shadow-[3px_3px_0px_0px_#D0BB78] flex items-center justify-center group"
+                >
+                  <Search className="w-5 h-5 group-hover:translate-x-0.5 transition-transform" strokeWidth={3} />
+                </button>
               </form>
-            </div>
-          )}
+          </div>
         </div>
 
         {/* Mobile Menu Overlay */}
@@ -257,7 +273,7 @@ function App() {
                       <p className="text-grey-300 font-bold text-sm md:text-lg mt-1 tracking-tight truncate">{data.info?.name}</p>
                     </div>
                     <div className="text-right relative z-10 shrink-0">
-                      <p className="text-[10px] font-bold text-grey-300 uppercase tracking-widest mb-1">Live Price</p>
+                      <p className="text-[10px] font-black text-grey-300 uppercase tracking-widest mb-1">Live Price</p>
                       <p className="text-3xl md:text-6xl font-mono font-extrabold text-tertiary tracking-tighter">${formatPrice(data.metrics?.price)}</p>
                     </div>
                   </div>
@@ -448,7 +464,7 @@ function App() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                    <div className="bg-white p-8 rounded-m border border-grey-200 shadow-sm flex flex-col">
-                      <h3 className="font-extrabold text-sm uppercase tracking-widest text-tertiary mb-8 flex items-center gap-2"><History size={18} className="text-[#1E8257]"/> Return History</h3>
+                      <h3 className="font-black text-[10px] uppercase tracking-widest text-grey-300 mb-8 flex items-center gap-2"><History size={18} className="text-[#1E8257]"/> Return History</h3>
                       <div className="flex-1 min-h-[300px]">
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={Object.entries(data.performance || {}).map(([k, v]) => ({ name: k, val: v }))} layout="vertical">
@@ -467,7 +483,7 @@ function App() {
                    </div>
 
                    <div className="bg-white p-8 rounded-m border border-grey-200 shadow-sm flex flex-col justify-between">
-                      <h3 className="font-extrabold text-sm uppercase tracking-widest text-tertiary mb-6 flex items-center gap-2"><BookOpen size={18} className="text-[#1E8257]" /> Digital Library</h3>
+                      <h3 className="font-black text-[10px] uppercase tracking-widest text-grey-300 mb-6 flex items-center gap-2"><BookOpen size={18} className="text-[#1E8257]" /> Digital Library</h3>
                       <div className="grid grid-cols-2 gap-4 mb-6">
                          <a href={`https://www.sec.gov/edgar/search/#/q=${data.ticker}&forms=10-K,10-Q`} target="_blank" rel="noreferrer" className="p-6 bg-primary border-2 border-tertiary rounded-m flex flex-col justify-center text-center shadow-[2px_2px_0px_0px_#15191d] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px] group transition-all">
                             <p className="text-[10px] font-extrabold text-tertiary uppercase mb-1 opacity-70 leading-none">SEC</p>
@@ -492,12 +508,12 @@ function App() {
 
                 <div className="bg-[rgba(80,136,199,0.2)] border border-[#131416] p-10 rounded-m text-tertiary shadow-[4px_4px_0px_0px_#131416] relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[120px] opacity-20 -mr-48 -mt-48"></div>
-                    <h3 className="font-extrabold text-xl uppercase tracking-widest text-tertiary mb-6 flex items-center gap-3"><Info size={24}/> {data.type === 'ETF' ? 'Fund Intelligence' : 'Company Intelligence'}</h3>
+                    <h3 className="font-black text-[10px] uppercase tracking-widest text-grey-300 mb-6 flex items-center gap-3"><Info size={24}/> {data.type === 'ETF' ? 'Fund Intelligence' : 'Company Intelligence'}</h3>
                     <p className="text-sm font-bold text-grey-900 leading-relaxed italic line-clamp-6">{data.info?.summary}</p>
                     
                     {data.type === 'ETF' && data.holdings?.length > 0 && (
                       <div className="mt-6 bg-white/30 border border-[#131416]/20 p-6 rounded-m shadow-inner">
-                         <h4 className="font-extrabold text-xs uppercase tracking-widest text-tertiary mb-4 flex items-center gap-2"><ListOrdered size={16}/> Top 10 Holdings</h4>
+                         <h4 className="font-black text-[10px] uppercase tracking-widest text-grey-300 mb-4 flex items-center gap-2"><ListOrdered size={16}/> Top 10 Holdings</h4>
                          <div className="grid grid-cols-2 gap-x-10 gap-y-3">
                             {data.holdings.map((h: any, i: number) => (
                               <div key={i} className="flex justify-between items-center group">

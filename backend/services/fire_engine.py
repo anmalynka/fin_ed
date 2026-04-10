@@ -122,10 +122,9 @@ class FIREEngine:
             
             growth = burn_portfolio * monthly_return
             burn_portfolio = burn_portfolio + growth - withdrawal_needed
-            
             age = round(start_age + (month / 12), 1)
             real_burn_portfolio = burn_portfolio / inf_factor
-            
+
             if not skip_history:
                 combined_history.append({
                     "month": total_months_from_now, "age": age,

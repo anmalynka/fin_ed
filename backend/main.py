@@ -456,24 +456,42 @@ async def get_portfolio_history(positions: List[PositionModel], period: str = Qu
                 return await loop.run_in_executor(None, lambda: fetch_yf_history(s, period=fetch_period, interval=interval))
             
         hist_dfs = await asyncio.gather(*[fetch_hist(t) for t in tickers])
-        combined_hist = None
+        
+        ticker_dataframes = []
         for i, df in enumerate(hist_dfs):
             if df is None or df.empty: continue
             t = tickers[i]
             temp_df = df[['Close']].rename(columns={'Close': t})
             temp_df[t] *= shares_map[t]
-            combined_hist = temp_df if combined_hist is None else combined_hist.join(temp_df, how='outer')
+            ticker_dataframes.append(temp_df)
             
-        if combined_hist is None: return {"data": []}
-        combined_hist = combined_hist.ffill().fillna(0)
-        combined_hist['Close'] = combined_hist.sum(axis=1)
+        if not ticker_dataframes: return {"data": []}
         
+        # Join all dataframes on the date index
+        combined_hist = pd.concat(ticker_dataframes, axis=1)
+        
+        # Fill missing values (for tickers with different lifespans)
+        combined_hist = combined_hist.ffill().fillna(0)
+        
+        # Sum ONLY the ticker columns to get total portfolio value
+        # Ensure 'Close' isn't already there (if we are re-running)
+        if 'Close' in combined_hist.columns:
+            combined_hist = combined_hist.drop(columns=['Close'])
+            
+        valid_tickers = [t for t in tickers if t in combined_hist.columns]
+        combined_hist['Close'] = combined_hist[valid_tickers].sum(axis=1)
+        
+        # Filter to requested period
         if indicators:
             ta = TechnicalAnalysisService("PORTFOLIO", session=yf_session)
             combined_hist = ta.calculate_indicators(combined_hist, indicators.split(','))
 
         combined_hist = combined_hist.reset_index()
         col = 'Date' if 'Date' in combined_hist.columns else 'Datetime'
+        # Handle empty combined_hist after reset_index
+        if combined_hist.empty or col not in combined_hist.columns:
+             return {"data": [], "performance": {"is_positive": True, "pct": 0}}
+
         combined_hist['date'] = combined_hist[col].dt.strftime('%H:%M' if period == "1d" else '%m-%d %H:%M')
         data = combined_hist.rename(columns={'Close': 'price'}).to_dict(orient='records')
         

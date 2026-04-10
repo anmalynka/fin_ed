@@ -94,7 +94,29 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await axios.post(`${apiBase}/fire/simulate`, inputs);
+      // Robust sanitization for ALL numeric inputs to avoid 422 errors
+      const safeNum = (v: any) => {
+        const n = Number(v);
+        return isNaN(n) ? 0 : n;
+      };
+
+      const sanitizedInputs = {
+        ...inputs,
+        current_age: safeNum(inputs.current_age),
+        target_retire_age: safeNum(inputs.target_retire_age),
+        plan_until_age: safeNum(inputs.plan_until_age),
+        current_portfolio: safeNum(inputs.current_portfolio),
+        target_monthly_spend: safeNum(inputs.target_monthly_spend),
+        swr: safeNum(inputs.swr),
+        expected_return: safeNum(inputs.expected_return),
+        monthly_deposit: safeNum(inputs.monthly_deposit),
+        contribution_step_up: safeNum(inputs.contribution_step_up),
+        contribution_duration: safeNum(inputs.contribution_duration),
+        inflation_rate: safeNum(inputs.inflation_rate),
+        tax_rate: safeNum(inputs.tax_rate)
+      };
+
+      const res = await axios.post(`${apiBase}/fire/simulate`, sanitizedInputs);
       if (res.data && res.data.scenarios) {
         setResults(res.data);
       } else {
@@ -102,7 +124,12 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       }
     } catch (err: any) {
       console.error("FIRE simulation failed", err);
-      const msg = err.response?.data?.detail || "Failed to calculate FIRE plan. Please try again.";
+      let msg = "Failed to calculate FIRE plan. Please check your inputs.";
+      if (err.response?.data?.detail) {
+        const detail = err.response.data.detail;
+        // Pydantic validation errors are often lists/objects - must stringify for React rendering
+        msg = typeof detail === 'string' ? detail : JSON.stringify(detail);
+      }
       setError(msg);
     } finally {
       setLoading(false);
@@ -347,7 +374,7 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           {inputs.simulation_mode === 'Direct' && activeScenario && (
             <div className="bg-white p-8 rounded-m border-2 border-tertiary shadow-[4px_4px_0px_0px_#15191d]">
               <div className="flex justify-between items-center mb-8">
-                <h3 className="font-black text-sm uppercase tracking-widest text-tertiary flex items-center gap-2">
+                <h3 className="font-black text-[10px] uppercase tracking-widest text-grey-300 flex items-center gap-2">
                   <TrendingUp size={18} className="text-primary" /> Accumulation ({isReal ? 'Real' : 'Formal'} Dollars)
                 </h3>
                 <div className="flex gap-4 text-[9px] font-black uppercase">
@@ -382,7 +409,7 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
 
           <div className="bg-white p-8 rounded-m border-2 border-tertiary shadow-[4px_4px_0px_0px_#15191d]">
             <div className="flex justify-between items-center mb-8">
-              <h3 className="font-black text-sm uppercase tracking-widest text-tertiary flex items-center gap-2">
+              <h3 className="font-black text-[10px] uppercase tracking-widest text-grey-300 flex items-center gap-2">
                 <Briefcase size={18} className="text-primary" /> Retirement Runway ({isReal ? 'Real' : 'Formal'})
               </h3>
               <div className="text-right">
