@@ -18,9 +18,15 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 import yfinance as yf
+from curl_cffi import requests as curl_requests
 import pandas as pd
 import numpy as np
 from fastapi import FastAPI, HTTPException, Query, Body
+
+# Global shared session for yfinance to handle cookies/crumbs robustly
+yf_session = curl_requests.Session(impersonate="chrome")
+# Limit concurrent requests to Yahoo Finance to avoid rate limiting
+yf_semaphore = asyncio.Semaphore(5)
 
 # In-memory cache for stock data (10 minute TTL)
 stock_cache = {}
@@ -114,7 +120,7 @@ class PositionModel(BaseModel):
 async def validate_ticker(ticker: str):
     ticker = ticker.upper().strip()
     try:
-        stock = yf.Ticker(ticker)
+        stock = yf.Ticker(ticker, session=yf_session)
         # fast_info is a good quick check
         price = stock.fast_info.last_price
         if price is None:
@@ -142,24 +148,28 @@ async def analyze_positions(positions: List[PositionModel]):
         loop = asyncio.get_event_loop()
         async def fetch_pos(pos: PositionModel):
             ticker = pos.ticker.upper().strip()
-            try:
-                stock = yf.Ticker(ticker)
-                info = await loop.run_in_executor(None, lambda: stock.info or {})
-                fast = stock.fast_info
-                
-                current_p = safe_float(getattr(fast, 'last_price', None)) or safe_float(info.get('currentPrice'))
-                prev_close = safe_float(info.get('regularMarketPreviousClose'))
-                
-                if current_p is None:
-                    h = await loop.run_in_executor(None, lambda: stock.history(period="1d"))
-                    if not h.empty: current_p = safe_float(h['Close'].iloc[-1])
-                
-                if current_p is None:
-                    return {"ticker": ticker, "error": "Price data unavailable", "shares": pos.shares, "avg_price": pos.avg_price, "category": pos.category}
+            async with yf_semaphore:
+                try:
+                    stock = yf.Ticker(ticker, session=yf_session)
+                    info = await loop.run_in_executor(None, lambda: stock.info or {})
+                    fast = stock.fast_info
+                    
+                    current_p = safe_float(getattr(fast, 'last_price', None)) or safe_float(info.get('currentPrice'))
+                    prev_close = safe_float(info.get('regularMarketPreviousClose'))
+                    
+                    if current_p is None:
+                        h = await loop.run_in_executor(None, lambda: stock.history(period="1d"))
+                        if not h.empty: current_p = safe_float(h['Close'].iloc[-1])
+                    
+                    if current_p is None:
+                        return {"ticker": ticker, "error": "Price data unavailable", "shares": pos.shares, "avg_price": pos.avg_price, "category": pos.category}
 
-                val_service = ValuationService(ticker)
-                perf = await loop.run_in_executor(None, val_service.get_performance_history)
-                sector_data = await loop.run_in_executor(None, val_service.get_sector_info)
+                    val_service = ValuationService(ticker, session=yf_session)
+                    perf = await loop.run_in_executor(None, val_service.get_performance_history)
+                    sector_data = await loop.run_in_executor(None, val_service.get_sector_info)
+                except Exception as e:
+                    logger.error(f"Error fetching {ticker}: {e}")
+                    return {"ticker": ticker, "error": str(e), "shares": pos.shares, "avg_price": pos.avg_price, "category": pos.category}
                 
                 div_rate = info.get('dividendRate') or info.get('trailingAnnualDividendRate') or 0.0
                 div_yield = info.get('dividendYield') or info.get('trailingAnnualDividendYield') or info.get('yield') or 0.0
@@ -191,9 +201,6 @@ async def analyze_positions(positions: List[PositionModel]):
                     "sector": sector_data.get('sector', 'Other'),
                     "category": pos.category or "Growth"
                 }
-            except Exception as e:
-                logger.error(f"Error fetching {ticker}: {e}")
-                return {"ticker": ticker, "error": str(e), "shares": pos.shares, "avg_price": pos.avg_price, "category": pos.category}
 
         tasks = [fetch_pos(p) for p in positions]
         results = await asyncio.gather(*tasks)
@@ -246,8 +253,13 @@ async def analyze_positions(positions: List[PositionModel]):
         sparkline_data = []
         try:
             all_tickers = [r['ticker'] for r in valid_results]
-            # Fetch 1y for the main chart
-            hist_dfs = await asyncio.gather(*[loop.run_in_executor(None, lambda t=t: yf.Ticker(t).history(period="1y")) for t in all_tickers])
+            # Fetch 1y for the main chart with semaphore and session
+            async def fetch_hist_safe(t):
+                async with yf_semaphore:
+                    s = yf.Ticker(t, session=yf_session)
+                    return await loop.run_in_executor(None, lambda: s.history(period="1y"))
+            
+            hist_dfs = await asyncio.gather(*[fetch_hist_safe(t) for t in all_tickers])
             combined_hist = None
             for i, df in enumerate(hist_dfs):
                 if df.empty: continue
@@ -309,26 +321,27 @@ async def analyze_stock(ticker: str):
         return cached
 
     try:
-        stock = yf.Ticker(ticker)
-        loop = asyncio.get_event_loop()
-        info = await loop.run_in_executor(None, lambda: stock.info or {})
-        fast = stock.fast_info
-        if not info or (not info.get('quoteType') and not info.get('symbol') and not info.get('regularMarketPrice')):
-            if not getattr(fast, 'last_price', None):
-                 raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' not found.")
-        quote_type = info.get('quoteType', 'EQUITY')
-        comp_name = info.get('longName', ticker)
-        val_service = ValuationService(ticker)
-        tasks = [
-            loop.run_in_executor(None, val_service.run_dcf_model),
-            loop.run_in_executor(None, val_service.get_performance_history),
-            get_stock_news(ticker, comp_name)
-        ]
-        dcf_res, perf, news_items = await asyncio.gather(*tasks)
-        current_p = safe_float(getattr(fast, 'last_price', None)) or safe_float(info.get('currentPrice'))
-        if current_p is None:
-            h = await loop.run_in_executor(None, lambda: stock.history(period="1d"))
-            if not h.empty: current_p = safe_float(h['Close'].iloc[-1])
+        async with yf_semaphore:
+            stock = yf.Ticker(ticker, session=yf_session)
+            loop = asyncio.get_event_loop()
+            info = await loop.run_in_executor(None, lambda: stock.info or {})
+            fast = stock.fast_info
+            if not info or (not info.get('quoteType') and not info.get('symbol') and not info.get('regularMarketPrice')):
+                if not getattr(fast, 'last_price', None):
+                     raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' not found.")
+            quote_type = info.get('quoteType', 'EQUITY')
+            comp_name = info.get('longName', ticker)
+            val_service = ValuationService(ticker, session=yf_session)
+            tasks = [
+                loop.run_in_executor(None, val_service.run_dcf_model),
+                loop.run_in_executor(None, val_service.get_performance_history),
+                get_stock_news(ticker, comp_name)
+            ]
+            dcf_res, perf, news_items = await asyncio.gather(*tasks)
+            current_p = safe_float(getattr(fast, 'last_price', None)) or safe_float(info.get('currentPrice'))
+            if current_p is None:
+                h = await loop.run_in_executor(None, lambda: stock.history(period="1d"))
+                if not h.empty: current_p = safe_float(h['Close'].iloc[-1])
         if current_p is None: raise HTTPException(status_code=404, detail="Price data unavailable.")
         holdings = []
         if quote_type == 'ETF':
@@ -371,18 +384,19 @@ async def get_history(ticker: str, period: str = Query("1wk"), indicators: str =
         return cached
 
     try:
-        stock = yf.Ticker(ticker)
-        interval = "1h" if period in ["1d", "5d", "1wk"] else "1d"
-        fetch_period = "2y" if indicators and period != "5y" else period
-        loop = asyncio.get_event_loop()
-        hist = await loop.run_in_executor(None, lambda: stock.history(period=fetch_period, interval=interval).reset_index())
-        if hist.empty: return {"data": []}
-        if indicators:
-            ta = TechnicalAnalysisService(ticker)
-            hist = await loop.run_in_executor(None, ta.calculate_indicators, hist, indicators.split(','))
-            orig_hist = await loop.run_in_executor(None, lambda: stock.history(period=period, interval=interval))
-            if not orig_hist.empty:
-                hist = hist[hist['Date' if 'Date' in hist.columns else 'Datetime'] >= orig_hist.index[0]]
+        async with yf_semaphore:
+            stock = yf.Ticker(ticker, session=yf_session)
+            interval = "1h" if period in ["1d", "5d", "1wk"] else "1d"
+            fetch_period = "2y" if indicators and period != "5y" else period
+            loop = asyncio.get_event_loop()
+            hist = await loop.run_in_executor(None, lambda: stock.history(period=fetch_period, interval=interval).reset_index())
+            if hist.empty: return {"data": []}
+            if indicators:
+                ta = TechnicalAnalysisService(ticker, session=yf_session)
+                hist = await loop.run_in_executor(None, ta.calculate_indicators, hist, indicators.split(','))
+                orig_hist = await loop.run_in_executor(None, lambda: stock.history(period=period, interval=interval))
+                if not orig_hist.empty:
+                    hist = hist[hist['Date' if 'Date' in hist.columns else 'Datetime'] >= orig_hist.index[0]]
         col = 'Date' if 'Date' in hist.columns else 'Datetime'
         hist['date'] = hist[col].dt.strftime('%H:%M' if period == "1d" else '%m-%d %H:%M')
         result = json_compatible({
@@ -407,13 +421,14 @@ async def get_forecast(ticker: str):
         return cached
 
     try:
-        engine = ForecastEngine(ticker)
-        res = await asyncio.get_event_loop().run_in_executor(None, engine.run_forecast)
-        if res is None:
-            return {}
-        result = json_compatible(res)
-        set_cached_data(cache_key, result)
-        return result
+        async with yf_semaphore:
+            engine = ForecastEngine(ticker, session=yf_session)
+            res = await asyncio.get_event_loop().run_in_executor(None, engine.run_forecast)
+            if res is None:
+                return {}
+            result = json_compatible(res)
+            set_cached_data(cache_key, result)
+            return result
     except Exception as e:
         err_msg = str(e).lower()
         if "too many requests" in err_msg or "429" in err_msg:
@@ -437,10 +452,11 @@ async def get_portfolio_history(
         tickers = [p.ticker.upper().strip() for p in positions]
         shares_map = {p.ticker.upper().strip(): p.shares for p in positions}
         
-        # Fetch history for all tickers
+        # Fetch history for all tickers with semaphore and session
         async def fetch_hist(t):
-            s = yf.Ticker(t)
-            return await loop.run_in_executor(None, lambda: s.history(period=fetch_period, interval=interval))
+            async with yf_semaphore:
+                s = yf.Ticker(t, session=yf_session)
+                return await loop.run_in_executor(None, lambda: s.history(period=fetch_period, interval=interval))
             
         hist_dfs = await asyncio.gather(*[fetch_hist(t) for t in tickers])
         combined_hist = None
@@ -459,11 +475,16 @@ async def get_portfolio_history(
         
         # Calculate Indicators on the combined portfolio line
         if indicators:
-            ta = TechnicalAnalysisService("PORTFOLIO")
+            ta = TechnicalAnalysisService("PORTFOLIO", session=yf_session)
             combined_hist = ta.calculate_indicators(combined_hist, indicators.split(','))
             
             # Trim to the requested period if we fetched extra for indicators
-            orig_sample = await loop.run_in_executor(None, lambda: yf.Ticker(tickers[0]).history(period=period, interval=interval))
+            async def fetch_orig_sample():
+                async with yf_semaphore:
+                    s = yf.Ticker(tickers[0], session=yf_session)
+                    return await loop.run_in_executor(None, lambda: s.history(period=period, interval=interval))
+            
+            orig_sample = await fetch_orig_sample()
             if not orig_sample.empty:
                 combined_hist = combined_hist[combined_hist.index >= orig_sample.index[0]]
 

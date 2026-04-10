@@ -5,9 +5,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 class TechnicalAnalysisService:
-    def __init__(self, ticker_symbol):
+    def __init__(self, ticker_symbol, session=None):
         self.ticker_symbol = ticker_symbol
-        self.ticker = yf.Ticker(ticker_symbol)
+        self.ticker = yf.Ticker(ticker_symbol, session=session)
 
     def get_pivot_points(self, period="1y"):
         """Calculate basic pivot points and support/resistance."""

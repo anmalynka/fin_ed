@@ -22,9 +22,9 @@ def clean_data(data):
     return data
 
 class FinancialsService:
-    def __init__(self, ticker_symbol):
+    def __init__(self, ticker_symbol, session=None):
         self.ticker_symbol = ticker_symbol
-        self.ticker = yf.Ticker(ticker_symbol)
+        self.ticker = yf.Ticker(ticker_symbol, session=session)
 
     def _safe_to_dict(self, data):
         """Helper to safely convert DataFrames or dicts to a serializable format."""

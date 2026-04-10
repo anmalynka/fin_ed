@@ -20,9 +20,9 @@ def clean_data(data):
     return data
 
 class ValuationService:
-    def __init__(self, ticker_symbol):
+    def __init__(self, ticker_symbol, session=None):
         self.ticker_symbol = ticker_symbol
-        self.ticker = yf.Ticker(ticker_symbol)
+        self.ticker = yf.Ticker(ticker_symbol, session=session)
         self.fast_info = self.ticker.fast_info
         try:
             self.info = self.ticker.info or {}

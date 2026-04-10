@@ -4,11 +4,12 @@ import numpy as np
 from datetime import datetime, timedelta
 
 class ForecastEngine:
-    def __init__(self, ticker):
+    def __init__(self, ticker, session=None):
         self.ticker = ticker
+        self.session = session
 
     def run_forecast(self):
-        stock = yf.Ticker(self.ticker)
+        stock = yf.Ticker(self.ticker, session=self.session)
         # Use 2 years for stable drift calculation
         df = stock.history(period="2y")
         if len(df) < 100: return None
