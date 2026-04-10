@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
   Flame, Target, TrendingUp, Loader2, Info, 
-  Plus, Trash2, RotateCcw, Play, Briefcase
+  Plus, Trash2, RotateCcw, Play, Briefcase, ToggleLeft, ToggleRight
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, 
@@ -63,8 +63,7 @@ const formatPrice = (val: number | undefined) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val || 0);
 
 const formatYAxis = (v: number) => {
-  if (v >= 900000) return `$${(v/1000000).toFixed(1)}M`;
-  if (v <= -900000) return `-$${(Math.abs(v)/1000000).toFixed(1)}M`;
+  if (v >= 900000 || v <= -900000) return `$${(v/1000000).toFixed(1)}M`;
   return `$${(v/1000).toFixed(0)}k`;
 };
 
@@ -87,6 +86,7 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [results, setResults] = useState<FireResults | null>(null);
   const [loading, setLoading] = useState(false);
   const [activeType, setActiveType] = useState<'Lean' | 'Standard' | 'Fat'>('Standard');
+  const [isReal, setIsReal] = useState(true); // Toggle between Real (Inflation Adjusted) and Formal (Nominal)
 
   const [error, setError] = useState<string | null>(null);
 
@@ -100,9 +100,10 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       } else {
         throw new Error("Invalid response from server");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("FIRE simulation failed", err);
-      setError("Failed to calculate FIRE plan. Please ensure the backend is running.");
+      const msg = err.response?.data?.detail || "Failed to calculate FIRE plan. Please try again.";
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -111,7 +112,7 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchSimulation();
-    }, 500); // Debounce
+    }, 600); // Debounce
     return () => clearTimeout(timer);
   }, [inputs]);
 
@@ -182,14 +183,14 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           </div>
 
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
               <InputField label="Current Age" name="current_age" value={inputs.current_age} onChange={handleChange} />
               {inputs.simulation_mode === 'Direct' && (
                 <InputField label="Target Retire Age" name="target_retire_age" value={inputs.target_retire_age} onChange={handleChange} />
               )}
             </div>
             
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
               <InputField label="Target Monthly Spend ($)" name="target_monthly_spend" value={inputs.target_monthly_spend} onChange={handleChange} step="100" />
               <InputField label="Plan Until Age" name="plan_until_age" value={inputs.plan_until_age} onChange={handleChange} />
             </div>
@@ -252,14 +253,14 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
             {inputs.simulation_mode === 'Direct' && (
               <div className="pt-4 border-t border-grey-100 space-y-4">
                 <InputField label="Monthly Deposit ($)" name="monthly_deposit" value={inputs.monthly_deposit} onChange={handleChange} step="100" />
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
                   <InputField label="Annual Step-up %" name="contribution_step_up" value={inputs.contribution_step_up} onChange={handleChange} step="0.1" />
                   <InputField label="Years Active" name="contribution_duration" value={inputs.contribution_duration} onChange={handleChange} />
                 </div>
               </div>
             )}
 
-            <div className="pt-4 border-t border-grey-100 grid grid-cols-2 gap-4">
+            <div className="pt-4 border-t border-grey-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
               <InputField label="Inflation %" name="inflation_rate" value={inputs.inflation_rate} onChange={handleChange} step="0.1" />
               <InputField label="Tax %" name="tax_rate" value={inputs.tax_rate} onChange={handleChange} step="1" />
             </div>
@@ -275,17 +276,30 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           </div>
         )}
 
-        {/* Scenario Selection Tabs */}
-        <div className="flex bg-white rounded-m border-2 border-tertiary p-1 shadow-[2px_2px_0px_0px_#15191d]">
-          {['Lean', 'Standard', 'Fat'].map((type) => (
-            <button 
-              key={type}
-              onClick={() => setActiveType(type as any)}
-              className={`flex-1 py-3 text-[11px] font-black uppercase rounded-m transition-all ${activeType === type ? 'bg-tertiary text-white' : 'text-grey-300 hover:text-tertiary'}`}
-            >
-              {type} FIRE
-            </button>
-          ))}
+        <div className="flex flex-col sm:flex-row gap-4">
+          {/* Scenario Selection Tabs */}
+          <div className="flex-grow flex bg-white rounded-m border-2 border-tertiary p-1 shadow-[2px_2px_0px_0px_#15191d]">
+            {['Lean', 'Standard', 'Fat'].map((type) => (
+              <button 
+                key={type}
+                onClick={() => setActiveType(type as any)}
+                className={`flex-1 py-3 text-[11px] font-black uppercase rounded-m transition-all ${activeType === type ? 'bg-tertiary text-white' : 'text-grey-300 hover:text-tertiary'}`}
+              >
+                {type} FIRE
+              </button>
+            ))}
+          </div>
+
+          {/* Real vs Formal Switcher */}
+          <div className="flex items-center justify-between px-4 py-2 bg-white rounded-m border-2 border-tertiary shadow-[2px_2px_0px_0px_#15191d]">
+             <span className="text-[10px] font-black uppercase text-tertiary mr-4">{isReal ? 'Real Dollars' : 'Formal Dollars'}</span>
+             <button 
+                onClick={() => setIsReal(!isReal)}
+                className={`transition-colors ${isReal ? 'text-[#1E8257]' : 'text-grey-300'}`}
+             >
+                {isReal ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
+             </button>
+          </div>
         </div>
 
         {/* Header KPIs */}
@@ -294,13 +308,13 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative z-10">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-2">{activeType} Goal (Real $)</p>
-              <p className="text-4xl font-mono font-black">{activeScenario ? formatPrice(activeScenario.fire_number_real) : '$0'}</p>
+              <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-2">{activeType} Goal ({isReal ? 'Real' : 'Formal'} $)</p>
+              <p className="text-4xl font-mono font-black">{activeScenario ? formatPrice(isReal ? activeScenario.fire_number_real : activeScenario.fire_number_real * Math.pow(1 + inputs.inflation_rate/100, (activeScenario.reached_fire_age || inputs.target_retire_age) - inputs.current_age)) : '$0'}</p>
               <p className="text-[10px] font-bold mt-2 uppercase italic text-primary">Monthly Spend: {formatPrice(activeType === 'Lean' ? inputs.target_monthly_spend * 0.7 : activeType === 'Fat' ? inputs.target_monthly_spend * 1.5 : inputs.target_monthly_spend)}</p>
             </div>
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-2">{inputs.simulation_mode === 'Direct' ? 'Projected at Retirement' : 'Initial Amount'}</p>
-              <p className="text-4xl font-mono font-black">{activeScenario ? formatPrice(activeScenario.portfolio_at_retire_real) : '$0'}</p>
+              <p className="text-4xl font-mono font-black">{activeScenario ? formatPrice(isReal ? activeScenario.portfolio_at_retire_real : activeScenario.portfolio_at_retire_real * Math.pow(1 + inputs.inflation_rate/100, (inputs.target_retire_age - inputs.current_age))) : '$0'}</p>
               <p className="text-[10px] font-bold mt-2 uppercase italic">Est. Return: {results?.annual_return_used}%</p>
             </div>
             <div className="flex flex-col justify-center">
@@ -334,7 +348,7 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
             <div className="bg-white p-8 rounded-m border-2 border-tertiary shadow-[4px_4px_0px_0px_#15191d]">
               <div className="flex justify-between items-center mb-8">
                 <h3 className="font-black text-sm uppercase tracking-widest text-tertiary flex items-center gap-2">
-                  <TrendingUp size={18} className="text-primary" /> Accumulation (Real Dollars)
+                  <TrendingUp size={18} className="text-primary" /> Accumulation ({isReal ? 'Real' : 'Formal'} Dollars)
                 </h3>
                 <div className="flex gap-4 text-[9px] font-black uppercase">
                   <span className="flex items-center gap-1.5"><div className="w-2 h-2 bg-tertiary"></div> Principal</span>
@@ -357,9 +371,9 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                     />
                     <YAxis axisLine={false} tickLine={false} tick={{fill: '#52525b', fontSize: 10, fontWeight: 'bold'}} tickFormatter={formatYAxis} />
                     <RechartsTooltip contentStyle={{borderRadius: '8px', border: '2px solid #0f172a', boxShadow: '4px 4px 0px 0px #0f172a'}} formatter={(v: any) => [formatPrice(v), '']} labelFormatter={(label) => `Age: ${label}`} />
-                    <Area type="monotone" dataKey="real_principal" stackId="1" stroke="#0f172a" fill="#0f172a" fillOpacity={0.8} />
-                    <Area type="monotone" dataKey="real_interest" stackId="1" stroke="#D0BB78" fill="#D0BB78" fillOpacity={0.8} />
-                    <ReferenceLine y={activeScenario.fire_number_real} stroke="#D0BB78" strokeDasharray="5 5" label={{ value: 'FIRE GOAL', position: 'right', fill: '#D0BB78', fontSize: 10, fontWeight: 'bold' }} />
+                    <Area type="monotone" dataKey={isReal ? "real_principal" : "nominal_principal"} stackId="1" stroke="#0f172a" fill="#0f172a" fillOpacity={0.8} />
+                    <Area type="monotone" dataKey={isReal ? "real_interest" : "nominal_interest"} stackId="1" stroke="#D0BB78" fill="#D0BB78" fillOpacity={0.8} />
+                    <ReferenceLine y={isReal ? activeScenario.fire_number_real : activeScenario.fire_number_real * Math.pow(1 + inputs.inflation_rate/100, (activeScenario.reached_fire_age || inputs.target_retire_age) - inputs.current_age)} stroke="#D0BB78" strokeDasharray="5 5" label={{ value: 'FIRE GOAL', position: 'right', fill: '#D0BB78', fontSize: 10, fontWeight: 'bold' }} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -369,7 +383,7 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           <div className="bg-white p-8 rounded-m border-2 border-tertiary shadow-[4px_4px_0px_0px_#15191d]">
             <div className="flex justify-between items-center mb-8">
               <h3 className="font-black text-sm uppercase tracking-widest text-tertiary flex items-center gap-2">
-                <Briefcase size={18} className="text-primary" /> Retirement Runway (Withdrawal)
+                <Briefcase size={18} className="text-primary" /> Retirement Runway ({isReal ? 'Real' : 'Formal'})
               </h3>
               <div className="text-right">
                 <p className="text-[9px] font-black text-grey-300 uppercase">Depletion Age</p>
@@ -392,7 +406,7 @@ const FirePlanner: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                   />
                   <YAxis axisLine={false} tickLine={false} tick={{fill: '#52525b', fontSize: 10, fontWeight: 'bold'}} tickFormatter={formatYAxis} />
                   <RechartsTooltip contentStyle={{borderRadius: '8px', border: '2px solid #0f172a', boxShadow: '4px 4px 0px 0px #0f172a'}} formatter={(v: any) => [formatPrice(v), 'Portfolio']} labelFormatter={(label) => `Age: ${label}`} />
-                  <Line type="monotone" dataKey="real_portfolio" stroke="#A45951" strokeWidth={4} dot={false} />
+                  <Line type="monotone" dataKey={isReal ? "real_portfolio" : "nominal_portfolio"} stroke="#A45951" strokeWidth={4} dot={false} />
                   <ReferenceLine y={0} stroke="#0f172a" strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>

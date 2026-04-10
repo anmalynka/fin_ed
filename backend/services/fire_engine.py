@@ -13,25 +13,23 @@ class AssetBucket(BaseModel):
 class FIREInput(BaseModel):
     current_age: int = 30
     target_retire_age: int = 50
-    plan_until_age: int = 90 # New field
+    plan_until_age: int = 90
     current_portfolio: float = 100000
     target_monthly_spend: float = 5000
     swr: float = 4.0 # Safe Withdrawal Rate %
     
-    # Portfolio Bucket
-    portfolio_mode: str = "Simple" # Simple or Granular
-    expected_return: float = 7.0 # % annual (used in Simple mode)
-    buckets: List[AssetBucket] = [] # Used in Granular mode
+    portfolio_mode: str = "Simple"
+    expected_return: float = 7.0
+    buckets: List[AssetBucket] = []
     
-    # Contributions
     monthly_deposit: float = 2000
-    contribution_step_up: float = 0.0 # % annual raise
-    contribution_duration: int = 20 # years
+    contribution_step_up: float = 0.0
+    contribution_duration: int = 20
     
-    inflation_rate: float = 3.0 # % annual
-    tax_rate: float = 15.0 # % flat tax on total or gains
+    inflation_rate: float = 3.0
+    tax_rate: float = 15.0
     
-    simulation_mode: str = "Direct" # "Direct" (Road to FIRE) or "Reverse" (Burn Rate)
+    simulation_mode: str = "Direct"
 
 class FIREEngine:
     def __init__(self, inputs: FIREInput):
@@ -48,18 +46,13 @@ class FIREEngine:
             return sum((b.value / total_val) * b.expected_return for b in self.inputs.buckets if b.type == "amount")
         return self.inputs.expected_return
 
-    def _run_single_sim(self, target_monthly_spend, monthly_dep_override=None):
+    def _run_single_sim(self, target_monthly_spend, monthly_dep_override=None, skip_history=False):
         annual_return = self._get_annual_return()
         monthly_return = (1 + annual_return / 100) ** (1/12) - 1
         monthly_inflation = (1 + self.inputs.inflation_rate / 100) ** (1/12) - 1
         annual_step_up = self.inputs.contribution_step_up / 100
         
-        # Dynamic Goal calculation: 
-        # The goal is the portfolio value needed at retirement age 
-        # to survive until plan_until_age with inflation.
-        plan_months = (self.inputs.plan_until_age - self.inputs.target_retire_age) * 12
-        accumulation_months = (self.inputs.target_retire_age - self.inputs.current_age) * 12
-        
+        accumulation_months = max(0, (self.inputs.target_retire_age - self.inputs.current_age) * 12)
         swr_decimal = max(0.001, self.inputs.swr) / 100
         fire_number_today = (target_monthly_spend * 12) / swr_decimal
         
@@ -71,11 +64,13 @@ class FIREEngine:
         principal_cumulative = portfolio
         combined_history = []
         
-        # Month 0
-        combined_history.append({
-            "month": 0, "age": float(self.inputs.current_age), "real_portfolio": round(portfolio, 2),
-            "real_principal": round(portfolio, 2), "real_interest": 0.0, "phase": "accumulation"
-        })
+        if not skip_history:
+            combined_history.append({
+                "month": 0, "age": float(self.inputs.current_age), 
+                "real_portfolio": round(portfolio, 2), "nominal_portfolio": round(portfolio, 2),
+                "real_principal": round(portfolio, 2), "nominal_principal": round(portfolio, 2),
+                "real_interest": 0.0, "nominal_interest": 0.0, "phase": "accumulation"
+            })
 
         reached_fire_age = None
         current_monthly_deposit = monthly_dep_override if monthly_dep_override is not None else self.inputs.monthly_deposit
@@ -90,43 +85,54 @@ class FIREEngine:
                 if month % 12 == 0:
                     current_monthly_deposit *= (1 + annual_step_up)
             
-            real_portfolio = portfolio / ((1 + monthly_inflation) ** month)
-            real_principal = principal_cumulative / ((1 + monthly_inflation) ** month)
+            inf_factor = (1 + monthly_inflation) ** month
+            real_portfolio = portfolio / inf_factor
+            real_principal = principal_cumulative / inf_factor
             
-            combined_history.append({
-                "month": month, "age": round(self.inputs.current_age + (month / 12), 1),
-                "real_portfolio": round(real_portfolio, 2), "real_principal": round(real_principal, 2),
-                "real_interest": round(real_portfolio - real_principal, 2),
-                "phase": "accumulation"
-            })
+            if not skip_history:
+                combined_history.append({
+                    "month": month, "age": round(self.inputs.current_age + (month / 12), 1),
+                    "real_portfolio": round(real_portfolio, 2),
+                    "nominal_portfolio": round(portfolio, 2),
+                    "real_principal": round(real_principal, 2),
+                    "nominal_principal": round(principal_cumulative, 2),
+                    "real_interest": round(real_portfolio - real_principal, 2),
+                    "nominal_interest": round(portfolio - principal_cumulative, 2),
+                    "phase": "accumulation"
+                })
+            
             if reached_fire_age is None and real_portfolio >= fire_number_today:
                 reached_fire_age = self.inputs.current_age + (month / 12)
 
         portfolio_at_retire = portfolio
-        real_portfolio_at_retire = combined_history[-1]["real_portfolio"]
+        real_portfolio_at_retire = portfolio / ((1 + monthly_inflation) ** accumulation_months) if accumulation_months > 0 else portfolio
 
         # 2. Withdrawal Phase
         burn_portfolio = portfolio_at_retire
+        nominal_burn_portfolio = portfolio_at_retire
         start_age = self.inputs.target_retire_age
         
         withdrawal_months = (self.inputs.plan_until_age - self.inputs.target_retire_age) * 12
-        for month in range(1, withdrawal_months + 1):
+        for month in range(1, max(1, withdrawal_months + 1)):
             total_months_from_now = month + accumulation_months
-            inflated_spend = target_monthly_spend * ((1 + monthly_inflation) ** total_months_from_now)
+            inf_factor = (1 + monthly_inflation) ** total_months_from_now
+            
+            inflated_spend = target_monthly_spend * inf_factor
             withdrawal_needed = inflated_spend / (1 - self.inputs.tax_rate / 100)
             
             growth = burn_portfolio * monthly_return
             burn_portfolio = burn_portfolio + growth - withdrawal_needed
             
             age = round(start_age + (month / 12), 1)
-            real_burn_portfolio = burn_portfolio / ((1 + monthly_inflation) ** total_months_from_now)
+            real_burn_portfolio = burn_portfolio / inf_factor
             
-            record = {
-                "month": total_months_from_now, "age": age,
-                "real_portfolio": round(real_burn_portfolio, 2),
-                "phase": "withdrawal"
-            }
-            combined_history.append(record)
+            if not skip_history:
+                combined_history.append({
+                    "month": total_months_from_now, "age": age,
+                    "real_portfolio": round(real_burn_portfolio, 2),
+                    "nominal_portfolio": round(burn_portfolio, 2),
+                    "phase": "withdrawal"
+                })
             if burn_portfolio <= 0: break
 
         return {
@@ -156,21 +162,24 @@ class FIREEngine:
         start_age = self.inputs.current_age
         
         history.append({
-            "month": 0, "age": float(start_age), "real_portfolio": round(portfolio, 2), "phase": "withdrawal"
+            "month": 0, "age": float(start_age), "real_portfolio": round(portfolio, 2), "nominal_portfolio": round(portfolio, 2), "phase": "withdrawal"
         })
 
         for month in range(1, 12 * 100):
-            inflated_spend = target_monthly_spend * ((1 + monthly_inflation) ** month)
+            inf_factor = (1 + monthly_inflation) ** month
+            inflated_spend = target_monthly_spend * inf_factor
             withdrawal_needed = inflated_spend / (1 - self.inputs.tax_rate / 100)
             
             growth = burn_portfolio * monthly_return
             burn_portfolio = burn_portfolio + growth - withdrawal_needed
             
             age = round(start_age + (month / 12), 1)
-            real_burn_portfolio = burn_portfolio / ((1 + monthly_inflation) ** month)
+            real_burn_portfolio = burn_portfolio / inf_factor
             history.append({
                 "month": month, "age": age,
-                "real_portfolio": round(real_burn_portfolio, 2), "phase": "withdrawal"
+                "real_portfolio": round(real_burn_portfolio, 2),
+                "nominal_portfolio": round(burn_portfolio, 2),
+                "phase": "withdrawal"
             })
             if burn_portfolio <= 0: break
             if age >= 100: break
@@ -199,13 +208,13 @@ class FIREEngine:
             else:
                 sim = self._run_single_sim(spend)
                 
-                # Extra monthly needed
+                # Extra monthly needed (binary search optimized)
                 if not sim["on_track"]:
                     low = self.inputs.monthly_deposit
-                    high = self.inputs.monthly_deposit + 20000
-                    for _ in range(15):
+                    high = self.inputs.monthly_deposit + 50000
+                    for _ in range(12): # Reduced iterations
                         mid = (low + high) / 2
-                        test_sim = self._run_single_sim(spend, mid)
+                        test_sim = self._run_single_sim(spend, mid, skip_history=True)
                         if test_sim["on_track"]: high = mid
                         else: low = mid
                     sim["extra_monthly_needed"] = round(high - self.inputs.monthly_deposit, 0)

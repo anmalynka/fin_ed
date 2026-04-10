@@ -153,11 +153,11 @@ async def validate_ticker(ticker: str):
             if price is None:
                 # Fallback to history with retry
                 h = await asyncio.get_event_loop().run_in_executor(None, lambda: fetch_yf_history(stock, period="1d"))
-                if h.empty:
+                if h is None or h.empty:
                     return {"valid": False, "error": "Ticker not found"}
                 price = h['Close'].iloc[-1]
             
-            info = await asyncio.get_event_loop().run_in_executor(None, lambda: fetch_yf_info(stock))
+            info = await asyncio.get_event_loop().run_in_executor(None, lambda: fetch_yf_info(stock) or {})
             return {
                 "valid": True, 
                 "ticker": ticker, 
@@ -166,6 +166,7 @@ async def validate_ticker(ticker: str):
                 "type": info.get('quoteType', 'EQUITY')
             }
     except Exception as e:
+        logger.error(f"Validation error for {ticker}: {e}")
         return {"valid": False, "error": str(e)}
 
 @app.post("/api/positions/analyze")

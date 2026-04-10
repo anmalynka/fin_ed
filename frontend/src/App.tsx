@@ -177,24 +177,25 @@ function App() {
 
   return (
     <div className="min-h-screen bg-secondary text-grey-500 p-6 font-sans">
-      <nav className="max-w-7xl mx-auto mb-10 h-16 md:h-20 flex items-center">
-        <div className="w-full flex justify-between items-center gap-8">
-          <div className="flex items-center gap-8 h-full">
-            <div className="flex items-center gap-3 shrink-0">
-              <img src={logoImg} alt="FinAdvisor Logo" className="w-10 h-10 object-contain rounded-m border-2 border-tertiary shadow-[2px_2px_0px_0px_#15191d]" />
-              <div className="hidden sm:block"><h1 className="text-lg font-extrabold uppercase tracking-tight text-tertiary">FinAdvisor</h1><p className="text-[10px] font-bold text-grey-300 uppercase italic mt-1 leading-none">Institutional Intelligence</p></div>
+      <nav className="max-w-7xl mx-auto mb-10 pb-6 border-b-2 border-grey-100">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex items-center justify-between w-full md:w-auto">
+            <div className="flex items-center gap-8 h-full">
+              <div 
+                className="flex items-center gap-3 shrink-0 cursor-pointer"
+                onClick={() => setCurrentPage('find')}
+              >
+                <img src={logoImg} alt="FinAdvisor Logo" className="w-10 h-10 object-contain rounded-m border-2 border-tertiary shadow-[2px_2px_0px_0px_#15191d]" />
+                <div className="hidden sm:block">
+                  <h1 className="text-lg font-extrabold uppercase tracking-tight text-tertiary">FinAdvisor</h1>
+                  <p className="text-[10px] font-bold text-grey-300 uppercase italic mt-1 leading-none">Institutional Intelligence</p>
+                </div>
+              </div>
+              
+              <div className="hidden md:flex h-full items-center">
+                <NavTabs />
+              </div>
             </div>
-            
-            <div className="hidden md:flex h-full items-center">
-              <NavTabs />
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-4 grow justify-end">
-            <form onSubmit={handleSearch} className="relative group hidden md:block w-full max-w-xs">
-              <input type="text" placeholder="Search Ticker..." className="w-full pl-10 pr-4 py-3 bg-white border border-[#6b7280] rounded-m focus:ring-4 focus:ring-primary/20 outline-none transition-all font-bold text-[14px] text-tertiary placeholder:text-[#cbd5e1]" value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())} />
-              {loading ? <Loader2 className="absolute left-3 top-[14px] text-primary animate-spin w-4 h-4" /> : <Search className="absolute left-3 top-[14px] text-grey-300 w-4 h-4" />}
-            </form>
             
             <button 
               className="md:hidden p-2 text-tertiary"
@@ -203,16 +204,31 @@ function App() {
               {isMenuOpen ? <X size={28} /> : <Menu size={28} />}
             </button>
           </div>
+
+          {/* Search bar - Only visible on Find page */}
+          {currentPage === 'find' && (
+            <div className="w-full md:max-w-md lg:max-w-lg animate-in fade-in slide-in-from-right-4 duration-500">
+              <form onSubmit={handleSearch} className="relative group">
+                <input 
+                  type="text" 
+                  placeholder="Search Ticker (e.g. AAPL, BTC-USD)..." 
+                  className="w-full pl-12 pr-4 py-3 bg-white border-2 border-tertiary rounded-m focus:ring-4 focus:ring-primary/20 outline-none transition-all font-black text-sm text-tertiary placeholder:text-grey-200 shadow-[3px_3px_0px_0px_#15191d]" 
+                  value={ticker} 
+                  onChange={(e) => setTicker(e.target.value.toUpperCase())} 
+                />
+                <div className="absolute left-4 top-1/2 -translate-y-1/2">
+                  {loading ? <Loader2 className="text-primary animate-spin w-4 h-4" /> : <Search className="text-tertiary w-4 h-4" strokeWidth={3} />}
+                </div>
+                <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 bg-tertiary text-white rounded-m text-[8px] font-black uppercase hover:bg-tertiary/90 hidden sm:block">Analyze</button>
+              </form>
+            </div>
+          )}
         </div>
 
         {/* Mobile Menu Overlay */}
         {isMenuOpen && (
           <div className="fixed inset-x-6 top-24 md:hidden bg-white border-2 border-tertiary p-6 rounded-m shadow-[4px_4px_0px_0px_#15191d] z-[90] animate-in slide-in-from-top-4">
             <NavTabs isMobile />
-            <form onSubmit={handleSearch} className="relative group mt-6">
-              <input type="text" placeholder="Search Ticker..." className="w-full pl-12 pr-6 py-[14px] bg-secondary border border-grey-200 rounded-m outline-none font-bold text-tertiary" value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())} />
-              <Search className="absolute left-4 top-[15px] text-grey-300 w-5 h-5" />
-            </form>
           </div>
         )}
       </nav>

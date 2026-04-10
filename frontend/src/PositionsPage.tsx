@@ -255,7 +255,7 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
       {/* Portfolio Header KPIs */}
-      {analysis && (
+      {analysis && positions.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <KPICard label="Total Market Value" value={`$${formatPrice(analysis.portfolio.total_value)}`} sub={`XIRR: ~${(analysis.portfolio.total_delta_pct || 0).toFixed(1)}%`} isPos={analysis.portfolio.total_delta >= 0} />
           <KPICard label="Day Change" value={`${(analysis.portfolio.total_day_delta || 0) >= 0 ? '+' : ''}$${formatPrice(analysis.portfolio.total_day_delta)}`} sub={formatPct(analysis.portfolio.total_day_delta_pct)} isPos={analysis.portfolio.total_day_delta >= 0} />
@@ -273,7 +273,7 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
       )}
 
       {/* Risk Row */}
-      {analysis && (
+      {analysis && positions.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white p-6 rounded-m border border-grey-200">
             <h4 className="text-[10px] font-black uppercase text-grey-300 tracking-widest mb-4 flex justify-between items-center">
@@ -383,7 +383,8 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
       </div>
 
       {/* Analytics Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
+      {analysis && positions.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
           {/* Equity Curve with Controls */}
           <div className="bg-white p-8 rounded-m border border-grey-200 shadow-sm col-span-1 lg:col-span-2">
             <div className="flex flex-col lg:flex-row justify-between items-center mb-8 gap-6">
@@ -534,7 +535,8 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
                 </RespCont>
               </div>
            </div>
-      </div>
+        </div>
+      )}
 
       {/* Add Position Modal */}
       {isModalOpen && (
