@@ -52,6 +52,8 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
   const [validatedData, setValidatedData] = useState<any>(null);
   
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Chart States
@@ -119,6 +121,8 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
   }, [newPos.ticker]);
 
   const fetchAnalysis = async () => {
+    setLoading(true);
+    setError('');
     try {
       const res = await axios.post(`${apiBase}/positions/analyze`, positions);
       if (res.data) {
@@ -126,6 +130,9 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
       }
     } catch (err: any) {
       console.error('Portfolio analysis failed', err);
+      setError('Connection error or invalid data.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -148,13 +155,36 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPos.ticker || !newPos.avg_price || !newPos.shares || !validatedData) return;
-    const p: Position = {
-      ticker: newPos.ticker.toUpperCase().trim(),
-      avg_price: parseFloat(newPos.avg_price),
-      shares: parseFloat(newPos.shares),
-      category: newPos.category
-    };
-    setPositions([...positions, p]);
+    
+    const ticker = newPos.ticker.toUpperCase().trim();
+    const newShares = parseFloat(newPos.shares);
+    const newAvgPrice = parseFloat(newPos.avg_price);
+    
+    const existingIndex = positions.findIndex(p => p.ticker === ticker);
+    
+    if (existingIndex !== -1) {
+      const updatedPositions = [...positions];
+      const existing = updatedPositions[existingIndex];
+      const totalShares = existing.shares + newShares;
+      // Weighted average: (q1*p1 + q2*p2) / (q1+q2)
+      const weightedAvgPrice = (existing.shares * existing.avg_price + newShares * newAvgPrice) / totalShares;
+      
+      updatedPositions[existingIndex] = {
+        ...existing,
+        shares: totalShares,
+        avg_price: weightedAvgPrice
+      };
+      setPositions(updatedPositions);
+    } else {
+      const p: Position = {
+        ticker,
+        avg_price: newAvgPrice,
+        shares: newShares,
+        category: newPos.category
+      };
+      setPositions([...positions, p]);
+    }
+
     setNewPos({ ticker: '', avg_price: '', shares: '', category: 'Growth' });
     setValidatedData(null);
     setIsModalOpen(false);
@@ -248,7 +278,37 @@ const PositionsPage: React.FC<PositionsPageProps> = ({ apiBase, onViewTicker }) 
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
+      {loading && !analysis && (
+        <div className="flex flex-col items-center justify-center py-20 space-y-4">
+          <Loader2 size={48} className="text-primary animate-spin" />
+          <p className="text-[10px] font-black uppercase tracking-widest text-grey-300">Analyzing Portfolio...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-[#A45951]/10 border-2 border-[#A45951] p-6 rounded-m text-center">
+          <p className="text-[#A45951] font-black uppercase text-xs">{error}</p>
+          <button onClick={() => fetchAnalysis()} className="mt-4 px-4 py-2 bg-tertiary text-white rounded-m text-[10px] font-black uppercase">Retry</button>
+        </div>
+      )}
+
       {/* Portfolio Header KPIs */}
+      {positions.length === 0 && !loading && (
+        <div className="bg-white border-2 border-dashed border-tertiary/20 rounded-m p-12 text-center flex flex-col items-center animate-in fade-in duration-700">
+          <div className="w-16 h-16 bg-secondary rounded-full flex items-center justify-center mb-6 text-tertiary/30">
+            <TrendingUp size={32} />
+          </div>
+          <h3 className="text-xl font-black uppercase text-tertiary mb-2">Portfolio Empty</h3>
+          <p className="text-[10px] font-bold text-grey-300 uppercase tracking-widest max-w-xs mb-8">Add your first position to unlock institutional-grade portfolio analysis and tracking.</p>
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="px-10 py-3.5 bg-tertiary text-white rounded-m text-[10px] font-black uppercase shadow-[4px_4px_0px_0px_#D0BB78] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
+          >
+            Start Portfolio
+          </button>
+        </div>
+      )}
+
       {analysis && positions.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <KPICard label="Total Market Value" value={`$${formatPrice(analysis.portfolio.total_value)}`} sub={`XIRR: ~${(analysis.portfolio.total_delta_pct || 0).toFixed(1)}%`} isPos={analysis.portfolio.total_delta >= 0} />
